@@ -46,7 +46,7 @@ Once that's done, `helpers.yaml` becomes the source of truth — edit there, not
 Each room has:
 
 1. A **Sinopé Wi-Fi baseboard heater** via the `neviweb130` integration — `climate.neviweb130_climate_th1123wf` (office) / `th1124wf` (studio). Provides `current_temperature`, `hourly_kwh`, and in cold-weather backup mode actually does the heating.
-2. A **heat pump** (mini-split) controlled via the `cielo_home` HACS integration. Each unit exposes both a `climate` entity (`climate.office`, `climate.studio`) and a power `switch` (`switch.office_power`, `switch.studio_power`) — same physical device, two entities. The automations reference these by their opaque device IDs (office `cd83ce32…`, studio `6aef9334…`); the inline `# office heat pump SWITCH / CLIMATE` comments in `automations.yaml` are the only key tying device IDs to friendly names — preserve them when editing.
+2. A **heat pump** (mini-split) controlled via the `cielo_home` HACS integration. Each unit exposes both a `climate` entity (`climate.office`, `climate.studio`) and a power `switch` (`switch.office_power`, `switch.studio_power`) — same physical device, two entities. The HVAC controllers reference these by entity name (`climate.office` / `climate.studio` for the climate side; `switch.office_power` / `switch.studio_power` for the power switch).
 
 Independent of the rooms: dehumidifier plug `ab8b624cc66726276f8c0a35c7903c9f` and humidifier plug `60211ed7b46e92fd6dcadf60d8087fd0` share one Zigbee humidity sensor.
 
