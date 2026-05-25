@@ -1,0 +1,35 @@
+# Home Assistant runtime artifacts — never commit
+home-assistant.log
+home-assistant.log.*
+home-assistant_v2.db
+home-assistant_v2.db-*
+.HA_VERSION
+.uuid
+.cloud/
+.cache/
+OZW_Log.txt
+ip_bans.yaml
+deps/
+tts/
+image/
+
+# Secrets — keep secrets.yaml.example versioned, never the real file
+secrets.yaml
+
+# HA's internal state store — version selectively (per-file), not wholesale.
+# HA rewrites these on every state change; some hold auth tokens.
+.storage/
+
+# HACS-managed third-party code. Restored by reinstalling each HACS
+# integration / plugin listed in CLAUDE.md. Don't vendor.
+custom_components/
+www/community/
+
+# Other HA runtime junk that some setups create
+zigbee.db*
+neviweb130_log.txt
+.ha_run.lock
+files/
+
+# macOS noise
+.DS_Store

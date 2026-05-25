@@ -1,0 +1,87 @@
+# Values copied from .storage/ on the HA host. The values here are
+# authoritative — if you change anything in the HA UI, mirror it here.
+#
+# Migration steps (one-time, to start using this file):
+#   1. In Settings → Devices & services → Helpers, delete each of the
+#      helpers below. (UI-defined and YAML-defined helpers with the same
+#      entity_id will conflict.)
+#   2. Add these three lines to configuration.yaml (top level):
+#        input_number:  !include helpers.yaml
+#        input_boolean: !include helpers.yaml
+#        input_select:  !include helpers.yaml
+#      (HA reads each top-level key from the included file.)
+#   3. From Developer Tools → YAML, reload "Input Number", "Input Boolean",
+#      and "Input Select" — or restart HA.
+#
+# Note on backup_heat: its UI-defined unique_id is `disable_heat_pump` but
+# the entity was renamed in the UI to `input_boolean.backup_heat` (which
+# is what automations.yaml references). In YAML the key below IS the
+# entity_id, so it's `backup_heat` directly — the rename collapses away.
+
+input_number:
+  office_preferred_temperature:
+    name: Office Preferred Temperature
+    min: 10
+    max: 30
+    step: 1
+    mode: slider
+    unit_of_measurement: "Degrees Celsius"
+    icon: mdi:temperature-celsius
+
+  studio_preferred_temperature:
+    name: Studio Preferred Temperature
+    min: 10
+    max: 30
+    step: 1
+    mode: slider
+    unit_of_measurement: "Degrees Celsius"
+    icon: mdi:temperature-celsius
+
+  office_temp_range:
+    name: office_temp_range
+    min: 0
+    max: 10
+    step: 1
+    mode: box
+    unit_of_measurement: "Celsius"
+    icon: mdi:temperature-celsius
+
+  studio_temp_range:
+    name: studio_temp_range
+    min: 0.5
+    max: 20
+    step: 1
+    mode: slider
+    unit_of_measurement: "Degrees Celsius"
+    icon: mdi:temperature-celsius
+
+  humidity_set_point:
+    name: Humidity Set Point
+    min: 0
+    max: 100
+    step: 1
+    mode: box
+    unit_of_measurement: "%"
+    icon: mdi:water-percent
+
+  humidity_tolerance:
+    name: Humidity Tolerance
+    min: 0
+    max: 100
+    step: 1
+    mode: box
+    unit_of_measurement: "%"
+    icon: mdi:water-percent
+
+input_boolean:
+  backup_heat:
+    name: Backup Heat Mode
+    icon: mdi:snowflake-thermometer
+
+input_select:
+  heat_pump_mode:
+    name: Heat Pump Mode
+    icon: mdi:heat-pump
+    options:
+      - heating
+      - cooling

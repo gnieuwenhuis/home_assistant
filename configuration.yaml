@@ -1,0 +1,92 @@
+# Loads default set of integrations. Do not remove.
+default_config:
+
+# Load frontend themes from the themes folder
+frontend:
+  themes: !include_dir_merge_named themes
+
+automation: !include automations.yaml
+script: !include scripts.yaml
+scene: !include scenes.yaml
+
+neviweb130:
+  username: !secret neviweb130_username
+  password: !secret neviweb130_password
+  network: "Studio"
+  scan_interval: 250
+  homekit_mode: False
+  stat_interval: 300
+  notify: "both"
+
+template:
+  - sensor:
+      - name: "Studio Baseboard Heater energy usage"
+        unique_id: sensor.studio_energy_usage
+        unit_of_measurement: "kWh"
+        device_class: energy
+        state_class: total
+        state: >-
+          {{ state_attr("climate.neviweb130_climate_th1124wf","hourly_kwh") }}
+      - name: "Studio baseboard heater energy usage count"
+        unique_id: sensor.studio_energy_usage_count
+        unit_of_measurement: "kWh"
+        device_class: energy
+        state_class: total_increasing
+        state: >-
+          {{ state_attr("climate.neviweb130_climate_th1124wf","hourly_kwh_count") }}
+      - name: "Office Baseboard Heater energy usage"
+        unique_id: sensor.office_energy_usage
+        unit_of_measurement: "kWh"
+        device_class: energy
+        state_class: total
+        state: >-
+          {{ state_attr("climate.neviweb130_climate_th1123wf","hourly_kwh") }}
+      - name: "Office baseboard heater energy usage count"
+        unique_id: sensor.office_energy_usage_count
+        unit_of_measurement: "kWh"
+        device_class: energy
+        state_class: measurement
+        state: >-
+          {{ state_attr("climate.neviweb130_climate_th1123wf","hourly_kwh_count") }}
+      - name: "Office baseboard Current Temperature"
+        unique_id: sensor.office_baseboard_current_temperature
+        unit_of_measurement: "°C"
+        device_class: temperature
+        state_class: measurement
+        state: >-
+          {{ state_attr("climate.neviweb130_climate_th1123wf","current_temperature") }}
+      - name: "Office Heat Pump Setpoint Temperature"
+        unique_id: sensor.office_heat_pump_setpoint_temperature
+        unit_of_measurement: "°C"
+        device_class: temperature
+        state_class: measurement
+        state: >-
+          {% from 'setpoint.jinja' import heat_pump_setpoint %}
+          {{ heat_pump_setpoint(
+              'climate.neviweb130_climate_th1123wf',
+              'sensor.office_temperature',
+              'input_number.office_preferred_temperature') }}
+      - name: "Studio baseboard Current Temperature"
+        unique_id: sensor.studio_baseboard_current_temperature
+        unit_of_measurement: "°C"
+        device_class: temperature
+        state_class: measurement
+        state: >-
+          {{ state_attr("climate.neviweb130_climate_th1124wf","current_temperature") }}
+      - name: "Studio Heat Pump Setpoint Temperature"
+        unique_id: sensor.studio_heat_pump_setpoint_temperature
+        unit_of_measurement: "°C"
+        device_class: temperature
+        state_class: measurement
+        state: >-
+          {% from 'setpoint.jinja' import heat_pump_setpoint %}
+          {{ heat_pump_setpoint(
+              'climate.neviweb130_climate_th1124wf',
+              'sensor.studio_temperature',
+              'input_number.studio_preferred_temperature') }}
+
+notify:
+  - platform: group
+    name: "Notification Group"
+    services:
+      - action: mobile_app_pixel_8

@@ -1,0 +1,31 @@
+{# Heat pump setpoint calculation for a single room.
+
+   Args:
+     thermostat       — climate entity providing the room's current_temperature
+     base_sensor      — sensor providing the base reference temperature (the
+                        outdoor / building reference the heat pump is steered
+                        relative to)
+     preferred_input  — input_number with the desired indoor temperature
+
+   Returns the computed setpoint clamped to [17, 30] °C, rounded toward the
+   side that pushes the heat pump harder (up when the room is too cold, down
+   when the room is too warm). Backup-heat mode collapses to base_temp - 1. #}
+
+{% macro heat_pump_setpoint(thermostat, base_sensor, preferred_input) -%}
+  {% set base_temp = states(base_sensor) | float %}
+  {% set current_temp = state_attr(thermostat, 'current_temperature') | float %}
+  {% set room_temp_error = current_temp - states(preferred_input) | float %}
+  {% set multiplier = 1.25 %}
+
+  {% if states('input_boolean.backup_heat') == 'on' %}
+    {% set setpoint = base_temp - 1 %}
+  {% else %}
+    {% set setpoint = base_temp - (room_temp_error * multiplier) %}
+  {% endif %}
+
+  {% if room_temp_error < 0.0 %}
+    {{ [17, [30, setpoint | round(0, 'ceil')] | min] | max }}
+  {% else %}
+    {{ [17, [30, setpoint | round(0, 'floor')] | min] | max }}
+  {% endif %}
+{%- endmacro %}
