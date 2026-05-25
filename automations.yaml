@@ -57,6 +57,7 @@
             device_id: cd83ce323b2ad0764d397ab18b5a5fa3
           data:
             temperature: "{{ setpoint }}"
+            hvac_mode: heat
       - if:
         - condition: not
           conditions:
@@ -77,6 +78,7 @@
             device_id: cd83ce323b2ad0764d397ab18b5a5fa3
           data:
             temperature: "{{ setpoint }}"
+            hvac_mode: heat
     # Cooling: room too hot → ensure pump on in COOL mode
     - conditions: "{{ mode == 'cooling' and too_hot }}"
       sequence:
@@ -95,6 +97,7 @@
             device_id: cd83ce323b2ad0764d397ab18b5a5fa3
           data:
             temperature: "{{ setpoint }}"
+            hvac_mode: cool
       - if:
         - condition: not
           conditions:
@@ -115,6 +118,7 @@
             device_id: cd83ce323b2ad0764d397ab18b5a5fa3
           data:
             temperature: "{{ setpoint }}"
+            hvac_mode: cool
     # Out of band in the wrong direction for the current mode → ensure pump off
     - conditions: "{{ desired_off }}"
       sequence:
@@ -170,6 +174,7 @@
             device_id: 6aef9334727c71097c0983eb156030d5
           data:
             temperature: "{{ setpoint }}"
+            hvac_mode: heat
       - if:
         - condition: not
           conditions:
@@ -190,6 +195,7 @@
             device_id: 6aef9334727c71097c0983eb156030d5
           data:
             temperature: "{{ setpoint }}"
+            hvac_mode: heat
     - conditions: "{{ mode == 'cooling' and too_hot }}"
       sequence:
       - if:
@@ -207,6 +213,7 @@
             device_id: 6aef9334727c71097c0983eb156030d5
           data:
             temperature: "{{ setpoint }}"
+            hvac_mode: cool
       - if:
         - condition: not
           conditions:
@@ -227,6 +234,7 @@
             device_id: 6aef9334727c71097c0983eb156030d5
           data:
             temperature: "{{ setpoint }}"
+            hvac_mode: cool
     - conditions: "{{ desired_off }}"
       sequence:
       - if:
@@ -404,10 +412,15 @@
   description: Keep office heat pump target temperature aligned with the computed setpoint
   triggers:
   - trigger: time_pattern
-    seconds: /30
+    seconds: 15
+  - trigger: time_pattern
+    seconds: 45
   conditions:
   - condition: template
-    value_template: "{{ states('sensor.office_target_temperature') | round != states('sensor.office_heat_pump_setpoint_temperature') }}"
+    value_template: >-
+      {% set target = states('sensor.office_target_temperature') | float(none) %}
+      {% set setpoint = states('sensor.office_heat_pump_setpoint_temperature') | float(none) %}
+      {{ target is not none and setpoint is not none and target != setpoint }}
   - condition: device
     type: is_on
     device_id: cd83ce323b2ad0764d397ab18b5a5fa3
@@ -419,6 +432,7 @@
       device_id: cd83ce323b2ad0764d397ab18b5a5fa3
     data:
       temperature: "{{ states('sensor.office_heat_pump_setpoint_temperature') }}"
+      hvac_mode: "{{ 'heat' if states('input_select.heat_pump_mode') == 'heating' else 'cool' }}"
   mode: single
 
 - id: studio_temperature_sync
@@ -426,10 +440,15 @@
   description: Keep studio heat pump target temperature aligned with the computed setpoint
   triggers:
   - trigger: time_pattern
-    seconds: /30
+    seconds: 15
+  - trigger: time_pattern
+    seconds: 45
   conditions:
   - condition: template
-    value_template: "{{ states('sensor.studio_target_temperature') | round != states('sensor.studio_heat_pump_setpoint_temperature') }}"
+    value_template: >-
+      {% set target = states('sensor.studio_target_temperature') | float(none) %}
+      {% set setpoint = states('sensor.studio_heat_pump_setpoint_temperature') | float(none) %}
+      {{ target is not none and setpoint is not none and target != setpoint }}
   - condition: device
     type: is_on
     device_id: 6aef9334727c71097c0983eb156030d5
@@ -441,6 +460,7 @@
       device_id: 6aef9334727c71097c0983eb156030d5
     data:
       temperature: "{{ states('sensor.studio_heat_pump_setpoint_temperature') }}"
+      hvac_mode: "{{ 'heat' if states('input_select.heat_pump_mode') == 'heating' else 'cool' }}"
   mode: single
 
 # ============================================================
