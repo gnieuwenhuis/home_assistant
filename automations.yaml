@@ -19,119 +19,69 @@
 - id: office_hvac_controller
   alias: Office HVAC Controller
   description: >-
-    Manage the office heat pump (switch + climate) every minute, based on
-    indoor temp vs. office_preferred_temperature ± office_temp_range and the
-    current heat_pump_mode (heating | cooling).
+    Drive the office heat pump (switch + climate) toward preferred ± swing.
+    Fires only when setpoint, mode, preferred, or swing change, plus a 5-min
+    safety heartbeat. Every Cielo API call is gated on a desired-vs-current
+    delta.
   triggers:
+  - trigger: state
+    entity_id:
+    - sensor.office_heat_pump_setpoint_temperature
+    - input_number.office_preferred_temperature
+    - input_number.office_temp_range
+  - trigger: state
+    entity_id: input_select.heat_pump_mode
+    for:
+      minutes: 2
   - trigger: time_pattern
-    minutes: /1
+    minutes: /5
   variables:
-    current_temp: "{{ states('sensor.office_baseboard_current_temperature') | float(0) }}"
-    preferred:    "{{ states('input_number.office_preferred_temperature')   | float(0) }}"
-    swing:        "{{ states('input_number.office_temp_range')              | float(0) }}"
-    mode:         "{{ states('input_select.heat_pump_mode') }}"
-    setpoint:     "{{ states('sensor.office_heat_pump_setpoint_temperature') }}"
-    too_cold:     "{{ current_temp < (preferred - swing) }}"
-    too_hot:      "{{ current_temp > (preferred + swing) }}"
-    desired_off:  "{{ (mode == 'heating' and too_hot) or (mode == 'cooling' and too_cold) }}"
+    current_temp:   "{{ states('sensor.office_baseboard_current_temperature') | float(0) }}"
+    preferred:      "{{ states('input_number.office_preferred_temperature')   | float(0) }}"
+    swing:          "{{ states('input_number.office_temp_range')              | float(0) }}"
+    mode:           "{{ states('input_select.heat_pump_mode') }}"
+    setpoint:       "{{ states('sensor.office_heat_pump_setpoint_temperature') | float(0) }}"
+    too_cold:       "{{ current_temp < (preferred - swing) }}"
+    too_hot:        "{{ current_temp > (preferred + swing) }}"
+    desired_on:     "{{ (mode == 'heating' and too_cold) or (mode == 'cooling' and too_hot) }}"
+    desired_off:    "{{ (mode == 'heating' and too_hot)  or (mode == 'cooling' and too_cold) }}"
+    desired_hvac:   "{{ 'heat' if mode == 'heating' else 'cool' }}"
+    switch_is_on:   "{{ is_state('switch.office_power', 'on') }}"
+    current_hvac:   "{{ states('climate.office') }}"
+    current_target: "{{ state_attr('climate.office', 'temperature') | float(none) }}"
   conditions:
   - "{{ mode in ['heating', 'cooling'] }}"
-  - "{{ too_cold or too_hot }}"
   actions:
   - choose:
-    # Heating: room too cold → ensure pump on in HEAT mode
-    - conditions: "{{ mode == 'heating' and too_cold }}"
+    # Was off, need on → turn on + set mode + target atomically
+    - conditions: "{{ desired_on and not switch_is_on }}"
       sequence:
-      - if:
-        - condition: device
-          type: is_off
-          device_id: cd83ce323b2ad0764d397ab18b5a5fa3
-          entity_id: a9aab30924fb7a9b7453d31f6dfd0bce  # office heat pump SWITCH
-          domain: switch
-        then:
-        - action: switch.turn_on
-          target:
-            device_id: cd83ce323b2ad0764d397ab18b5a5fa3
-        - action: climate.set_temperature
-          target:
-            device_id: cd83ce323b2ad0764d397ab18b5a5fa3
-          data:
-            temperature: "{{ setpoint }}"
-            hvac_mode: heat
-      - if:
-        - condition: not
-          conditions:
-          - condition: device
-            device_id: cd83ce323b2ad0764d397ab18b5a5fa3
-            entity_id: 723114cb5d2975341188965a065ef5f3  # office heat pump CLIMATE
-            domain: climate
-            type: is_hvac_mode
-            hvac_mode: heat
-        then:
-        - action: climate.set_hvac_mode
-          target:
-            device_id: cd83ce323b2ad0764d397ab18b5a5fa3
-          data:
-            hvac_mode: heat
-        - action: climate.set_temperature
-          target:
-            device_id: cd83ce323b2ad0764d397ab18b5a5fa3
-          data:
-            temperature: "{{ setpoint }}"
-            hvac_mode: heat
-    # Cooling: room too hot → ensure pump on in COOL mode
-    - conditions: "{{ mode == 'cooling' and too_hot }}"
+      - action: switch.turn_on
+        target:
+          entity_id: switch.office_power
+      - action: climate.set_temperature
+        target:
+          entity_id: climate.office
+        data:
+          temperature: "{{ setpoint }}"
+          hvac_mode: "{{ desired_hvac }}"
+    # Already on, mode or target drifted (subsumes office_temperature_sync)
+    - conditions: >-
+        {{ desired_on and switch_is_on and
+           (current_hvac != desired_hvac or current_target != setpoint) }}
       sequence:
-      - if:
-        - condition: device
-          type: is_off
-          device_id: cd83ce323b2ad0764d397ab18b5a5fa3
-          entity_id: a9aab30924fb7a9b7453d31f6dfd0bce
-          domain: switch
-        then:
-        - action: switch.turn_on
-          target:
-            device_id: cd83ce323b2ad0764d397ab18b5a5fa3
-        - action: climate.set_temperature
-          target:
-            device_id: cd83ce323b2ad0764d397ab18b5a5fa3
-          data:
-            temperature: "{{ setpoint }}"
-            hvac_mode: cool
-      - if:
-        - condition: not
-          conditions:
-          - condition: device
-            device_id: cd83ce323b2ad0764d397ab18b5a5fa3
-            entity_id: 723114cb5d2975341188965a065ef5f3
-            domain: climate
-            type: is_hvac_mode
-            hvac_mode: cool
-        then:
-        - action: climate.set_hvac_mode
-          target:
-            device_id: cd83ce323b2ad0764d397ab18b5a5fa3
-          data:
-            hvac_mode: cool
-        - action: climate.set_temperature
-          target:
-            device_id: cd83ce323b2ad0764d397ab18b5a5fa3
-          data:
-            temperature: "{{ setpoint }}"
-            hvac_mode: cool
-    # Out of band in the wrong direction for the current mode → ensure pump off
-    - conditions: "{{ desired_off }}"
+      - action: climate.set_temperature
+        target:
+          entity_id: climate.office
+        data:
+          temperature: "{{ setpoint }}"
+          hvac_mode: "{{ desired_hvac }}"
+    # Overshooting wrong direction → off
+    - conditions: "{{ desired_off and switch_is_on }}"
       sequence:
-      - if:
-        - condition: device
-          type: is_on
-          device_id: cd83ce323b2ad0764d397ab18b5a5fa3
-          entity_id: a9aab30924fb7a9b7453d31f6dfd0bce
-          domain: switch
-        then:
-        - action: switch.turn_off
-          target:
-            device_id: cd83ce323b2ad0764d397ab18b5a5fa3
+      - action: switch.turn_off
+        target:
+          entity_id: switch.office_power
   mode: single
 
 - id: studio_hvac_controller
@@ -406,34 +356,6 @@
 # setpoint sensor (whose value drifts as conditions change).
 # Only runs while the room's heat pump switch is on.
 # ============================================================
-
-- id: office_temperature_sync
-  alias: Office Temperature Sync
-  description: Keep office heat pump target temperature aligned with the computed setpoint
-  triggers:
-  - trigger: time_pattern
-    seconds: 15
-  - trigger: time_pattern
-    seconds: 45
-  conditions:
-  - condition: template
-    value_template: >-
-      {% set target = states('sensor.office_target_temperature') | float(none) %}
-      {% set setpoint = states('sensor.office_heat_pump_setpoint_temperature') | float(none) %}
-      {{ target is not none and setpoint is not none and target != setpoint }}
-  - condition: device
-    type: is_on
-    device_id: cd83ce323b2ad0764d397ab18b5a5fa3
-    entity_id: a9aab30924fb7a9b7453d31f6dfd0bce
-    domain: switch
-  actions:
-  - action: climate.set_temperature
-    target:
-      device_id: cd83ce323b2ad0764d397ab18b5a5fa3
-    data:
-      temperature: "{{ states('sensor.office_heat_pump_setpoint_temperature') }}"
-      hvac_mode: "{{ 'heat' if states('input_select.heat_pump_mode') == 'heating' else 'cool' }}"
-  mode: single
 
 - id: studio_temperature_sync
   alias: Studio Temperature Sync
