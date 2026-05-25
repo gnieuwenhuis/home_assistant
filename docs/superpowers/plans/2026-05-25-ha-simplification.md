@@ -33,12 +33,16 @@ Open `/Users/gregn/Documents/office/configuration.yaml`. Find the last item in t
       - name: "Humidity High Threshold"
         unique_id: sensor.humidity_high_threshold
         unit_of_measurement: "%"
+        device_class: humidity
+        state_class: measurement
         state: >-
           {{ states('input_number.humidity_set_point') | float
              + states('input_number.humidity_tolerance') | float }}
       - name: "Humidity Low Threshold"
         unique_id: sensor.humidity_low_threshold
         unit_of_measurement: "%"
+        device_class: humidity
+        state_class: measurement
         state: >-
           {{ states('input_number.humidity_set_point') | float
              - states('input_number.humidity_tolerance') | float }}

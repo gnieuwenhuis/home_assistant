@@ -196,6 +196,8 @@ with two branches that duplicate the trigger templates as conditions. After:
 - name: "Humidity High Threshold"
   unique_id: sensor.humidity_high_threshold
   unit_of_measurement: "%"
+  device_class: humidity
+  state_class: measurement
   state: >-
     {{ states('input_number.humidity_set_point') | float
        + states('input_number.humidity_tolerance') | float }}
@@ -203,6 +205,8 @@ with two branches that duplicate the trigger templates as conditions. After:
 - name: "Humidity Low Threshold"
   unique_id: sensor.humidity_low_threshold
   unit_of_measurement: "%"
+  device_class: humidity
+  state_class: measurement
   state: >-
     {{ states('input_number.humidity_set_point') | float
        - states('input_number.humidity_tolerance') | float }}
