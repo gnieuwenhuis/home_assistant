@@ -251,99 +251,74 @@
 #                  off when humidity > set_point
 # ============================================================
 
-- id: '1765216181800'
-  alias: Dehumidifier Controller
-  description: ''
+- id: dehumidifier_on
+  alias: Dehumidifier ON
+  description: >-
+    Turn the dehumidifier on when humidity rises above set_point + tolerance.
   triggers:
-  - trigger: template
-    value_template: '{{ states("sensor.tz3000_utwgoauk_snzb_02_humidity") | float
-      > (states("input_number.humidity_set_point") | float + states("input_number.humidity_tolerance")
-      | float) }}'
-  - trigger: template
-    value_template: '{{ states("sensor.tz3000_utwgoauk_snzb_02_humidity") | float
-      < (states("input_number.humidity_set_point") | float) }}'
-  conditions: []
+  - trigger: numeric_state
+    entity_id: sensor.tz3000_utwgoauk_snzb_02_humidity
+    above: sensor.humidity_high_threshold
+  conditions:
+  - condition: state
+    entity_id: switch.mini_plug_4_socket_1
+    state: "off"
   actions:
-  - choose:
-    - conditions:
-      - condition: and
-        conditions:
-        - condition: state
-          entity_id: switch.mini_plug_4_socket_1
-          state:
-          - 'off'
-        - condition: template
-          value_template: '{{ states("sensor.tz3000_utwgoauk_snzb_02_humidity") |
-            float > (states("input_number.humidity_set_point") | float + states("input_number.humidity_tolerance")
-            | float) }}'
-      sequence:
-      - type: turn_on
-        device_id: ab8b624cc66726276f8c0a35c7903c9f
-        entity_id: 81db4e7da7c1b546c9f89c562d9f2877
-        domain: switch
-    - conditions:
-      - condition: and
-        conditions:
-        - condition: device
-          type: is_on
-          device_id: ab8b624cc66726276f8c0a35c7903c9f
-          entity_id: 81db4e7da7c1b546c9f89c562d9f2877
-          domain: switch
-        - condition: template
-          value_template: '{{ states("sensor.tz3000_utwgoauk_snzb_02_humidity") |
-            float < (states("input_number.humidity_set_point") | float) }}'
-      sequence:
-      - type: turn_off
-        device_id: ab8b624cc66726276f8c0a35c7903c9f
-        entity_id: 81db4e7da7c1b546c9f89c562d9f2877
-        domain: switch
+  - action: switch.turn_on
+    target:
+      entity_id: switch.mini_plug_4_socket_1
   mode: single
 
-- id: '1765216369307'
-  alias: Humidifier Controller
-  description: ''
+- id: dehumidifier_off
+  alias: Dehumidifier OFF
+  description: >-
+    Turn the dehumidifier off when humidity falls below set_point.
   triggers:
-  - trigger: template
-    value_template: '{{ states("sensor.tz3000_utwgoauk_snzb_02_humidity") | float
-      > (states("input_number.humidity_set_point") | float) }}'
-  - trigger: template
-    value_template: '{{ states("sensor.tz3000_utwgoauk_snzb_02_humidity") | float
-      < (states("input_number.humidity_set_point") | float - states("input_number.humidity_tolerance")
-      | float) }}'
-  conditions: []
+  - trigger: numeric_state
+    entity_id: sensor.tz3000_utwgoauk_snzb_02_humidity
+    below: input_number.humidity_set_point
+  conditions:
+  - condition: state
+    entity_id: switch.mini_plug_4_socket_1
+    state: "on"
   actions:
-  - choose:
-    - conditions:
-      - condition: and
-        conditions:
-        - condition: device
-          type: is_on
-          device_id: 60211ed7b46e92fd6dcadf60d8087fd0
-          entity_id: 20b4932ed53a51e2d16784f0254dd996
-          domain: switch
-        - condition: template
-          value_template: '{{ states("sensor.tz3000_utwgoauk_snzb_02_humidity") |
-            float > (states("input_number.humidity_set_point") | float) }}'
-      sequence:
-      - type: turn_off
-        device_id: 60211ed7b46e92fd6dcadf60d8087fd0
-        entity_id: 20b4932ed53a51e2d16784f0254dd996
-        domain: switch
-    - conditions:
-      - condition: and
-        conditions:
-        - condition: device
-          type: is_off
-          device_id: 60211ed7b46e92fd6dcadf60d8087fd0
-          entity_id: 20b4932ed53a51e2d16784f0254dd996
-          domain: switch
-        - condition: template
-          value_template: '{{ states("sensor.tz3000_utwgoauk_snzb_02_humidity") |
-            float < (states("input_number.humidity_set_point") | float - states("input_number.humidity_tolerance")
-            | float) }}'
-      sequence:
-      - type: turn_on
-        device_id: 60211ed7b46e92fd6dcadf60d8087fd0
-        entity_id: 20b4932ed53a51e2d16784f0254dd996
-        domain: switch
+  - action: switch.turn_off
+    target:
+      entity_id: switch.mini_plug_4_socket_1
+  mode: single
+
+- id: humidifier_on
+  alias: Humidifier ON
+  description: >-
+    Turn the humidifier on when humidity falls below set_point - tolerance.
+  triggers:
+  - trigger: numeric_state
+    entity_id: sensor.tz3000_utwgoauk_snzb_02_humidity
+    below: sensor.humidity_low_threshold
+  conditions:
+  - condition: state
+    entity_id: switch.studio_humidifier_socket_1
+    state: "off"
+  actions:
+  - action: switch.turn_on
+    target:
+      entity_id: switch.studio_humidifier_socket_1
+  mode: single
+
+- id: humidifier_off
+  alias: Humidifier OFF
+  description: >-
+    Turn the humidifier off when humidity rises above set_point.
+  triggers:
+  - trigger: numeric_state
+    entity_id: sensor.tz3000_utwgoauk_snzb_02_humidity
+    above: input_number.humidity_set_point
+  conditions:
+  - condition: state
+    entity_id: switch.studio_humidifier_socket_1
+    state: "on"
+  actions:
+  - action: switch.turn_off
+    target:
+      entity_id: switch.studio_humidifier_socket_1
   mode: single
