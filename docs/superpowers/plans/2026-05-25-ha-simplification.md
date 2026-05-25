@@ -153,6 +153,10 @@ Paste this in place (right after the HVAC controllers banner comment, before the
     current_target: "{{ state_attr('climate.office', 'temperature') | float(none) }}"
   conditions:
   - "{{ mode in ['heating', 'cooling'] }}"
+  - "{{ states('sensor.office_baseboard_current_temperature') not in ['unavailable', 'unknown'] }}"
+  - "{{ states('sensor.office_heat_pump_setpoint_temperature') not in ['unavailable', 'unknown'] }}"
+  - "{{ states('switch.office_power') not in ['unavailable', 'unknown'] }}"
+  - "{{ states('climate.office') not in ['unavailable', 'unknown'] }}"
   actions:
   - choose:
     # Was off, need on → turn on + set mode + target atomically
@@ -307,6 +311,10 @@ Find and delete the entire `- id: studio_hvac_controller` automation (the second
     current_target: "{{ state_attr('climate.studio', 'temperature') | float(none) }}"
   conditions:
   - "{{ mode in ['heating', 'cooling'] }}"
+  - "{{ states('sensor.studio_baseboard_current_temperature') not in ['unavailable', 'unknown'] }}"
+  - "{{ states('sensor.studio_heat_pump_setpoint_temperature') not in ['unavailable', 'unknown'] }}"
+  - "{{ states('switch.studio_power') not in ['unavailable', 'unknown'] }}"
+  - "{{ states('climate.studio') not in ['unavailable', 'unknown'] }}"
   actions:
   - choose:
     - conditions: "{{ desired_on and not switch_is_on }}"

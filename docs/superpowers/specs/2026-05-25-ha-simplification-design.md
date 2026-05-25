@@ -90,6 +90,10 @@ setpoint flipping.
     current_target: "{{ state_attr('climate.office', 'temperature') | float(none) }}"
   conditions:
     - "{{ mode in ['heating', 'cooling'] }}"
+    - "{{ states('sensor.office_baseboard_current_temperature') not in ['unavailable', 'unknown'] }}"
+    - "{{ states('sensor.office_heat_pump_setpoint_temperature') not in ['unavailable', 'unknown'] }}"
+    - "{{ states('switch.office_power') not in ['unavailable', 'unknown'] }}"
+    - "{{ states('climate.office') not in ['unavailable', 'unknown'] }}"
   actions:
     - choose:
         # Was off, need on → turn on + set mode + target atomically
@@ -166,6 +170,21 @@ off on overshoot doesn't materially change room temperature.
   branch fires; zero Cielo calls.
 - The 5-min heartbeat tick re-evaluates without changing inputs; if every
   comparison is unchanged from the last evaluation, no branch fires.
+
+#### Unavailability guard
+
+All four top-level conditions must pass before any action is taken. When
+`climate.office` becomes unavailable (Cielo connectivity drop),
+`state_attr('climate.office', 'temperature') | float(none)` yields `None`;
+the branch-2 comparison `current_target != setpoint` then evaluates
+`None != <float>` as `True` and would fire a spurious `climate.set_temperature`
+call on every heartbeat. At HA boot, if `sensor.office_heat_pump_setpoint_temperature`
+is briefly unavailable, `| float(0)` yields `0.0` — which with `current_temp`
+also defaulting to 0 could trigger branch 1 and send a 0 °C target to Cielo.
+The four entity-state conditions (`not in ['unavailable', 'unknown']`) make the
+controller a complete no-op when any critical input is unavailable — simpler
+and safer than per-branch `none`-guards. The studio controller carries the
+identical four conditions with `studio` names.
 
 #### Behavior-preservation argument for hysteresis
 
