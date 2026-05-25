@@ -51,6 +51,10 @@
     current_target: "{{ state_attr('climate.office', 'temperature') | float(none) }}"
   conditions:
   - "{{ mode in ['heating', 'cooling'] }}"
+  - "{{ states('sensor.office_baseboard_current_temperature') not in ['unavailable', 'unknown'] }}"
+  - "{{ states('sensor.office_heat_pump_setpoint_temperature') not in ['unavailable', 'unknown'] }}"
+  - "{{ states('switch.office_power') not in ['unavailable', 'unknown'] }}"
+  - "{{ states('climate.office') not in ['unavailable', 'unknown'] }}"
   actions:
   - choose:
     # Was off, need on → turn on + set mode + target atomically
