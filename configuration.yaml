@@ -84,6 +84,18 @@ template:
               'climate.neviweb130_climate_th1124wf',
               'sensor.studio_temperature',
               'input_number.studio_preferred_temperature') }}
+      - name: "Humidity High Threshold"
+        unique_id: sensor.humidity_high_threshold
+        unit_of_measurement: "%"
+        state: >-
+          {{ states('input_number.humidity_set_point') | float
+             + states('input_number.humidity_tolerance') | float }}
+      - name: "Humidity Low Threshold"
+        unique_id: sensor.humidity_low_threshold
+        unit_of_measurement: "%"
+        state: >-
+          {{ states('input_number.humidity_set_point') | float
+             - states('input_number.humidity_tolerance') | float }}
 
 notify:
   - platform: group
