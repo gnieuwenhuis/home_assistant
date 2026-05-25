@@ -2,9 +2,12 @@
 
    Args:
      thermostat       — climate entity providing the room's current_temperature
-     base_sensor      — sensor providing the base reference temperature (the
-                        outdoor / building reference the heat pump is steered
-                        relative to)
+                        attribute (the baseboard heater's built-in thermometer)
+     base_sensor      — secondary indoor temperature sensor that anchors the
+                        steering; the setpoint is computed relative to this
+                        reading so the heat pump is steered toward `preferred`
+                        as the room's actual temperature diverges from
+                        `base_sensor`'s reading
      preferred_input  — input_number with the desired indoor temperature
 
    Returns the computed setpoint clamped to [17, 30] °C, rounded toward the
