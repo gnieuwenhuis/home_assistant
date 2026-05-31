@@ -244,81 +244,187 @@
 # ============================================================
 # Humidity
 # ------------------------------------------------------------
-# Independent humidity band:
-#   dehumidifier turns on  when humidity > set_point + tolerance
-#                  off when humidity < set_point
-#   humidifier   turns on  when humidity < set_point - tolerance
-#                  off when humidity > set_point
+# One state-driven controller reconciles the studio humidifier
+# and dehumidifier from the current humidity level (it replaced
+# four edge-triggered on/off automations). It:
+#   - never lets both run at once (mutual-exclusion safety),
+#   - forces a 15-min relaxation cooldown after a controller
+#     turn-off before the opposite device may start (stops the
+#     overshoot ping-pong), and
+#   - respects a manual switch flip for 15 min before resuming.
+# Hysteresis around input_number.humidity_set_point with
+# input_number.humidity_tolerance:
+#   dehumidifier ON at set_point+tol, OFF below set_point
+#   humidifier   ON at set_point-tol, OFF above set_point
+# The manual detector tells controller-issued switch changes
+# apart from manual ones via the *_intended mirror booleans.
 # ============================================================
 
-- id: dehumidifier_on
-  alias: Dehumidifier ON
+- id: studio_humidity_controller
+  alias: Studio Humidity Controller
   description: >-
-    Turn the dehumidifier on when humidity rises above set_point + tolerance.
+    Reconcile the studio humidifier/dehumidifier from the current humidity
+    level. Enforces mutual exclusion (never both on), a 15-min cross-device
+    relaxation cooldown after a controller turn-off, and a 15-min grace window
+    after a manual switch flip. Fires on humidity/setpoint/switch/timer changes,
+    HA start, and a 5-min heartbeat. Performs at most one action per run, gated
+    on real deltas.
   triggers:
-  - trigger: numeric_state
-    entity_id: sensor.tz3000_utwgoauk_snzb_02_humidity
-    above: sensor.humidity_high_threshold
+  - trigger: state
+    entity_id:
+    - sensor.tz3000_utwgoauk_snzb_02_humidity
+    - input_number.humidity_set_point
+    - input_number.humidity_tolerance
+    - switch.mini_plug_4_socket_1
+    - switch.studio_humidifier_socket_1
+  - trigger: event
+    event_type: timer.finished
+    event_data:
+      entity_id: timer.humidity_cooldown
+  - trigger: event
+    event_type: timer.finished
+    event_data:
+      entity_id: timer.dehumidifier_manual_grace
+  - trigger: event
+    event_type: timer.finished
+    event_data:
+      entity_id: timer.humidifier_manual_grace
+  - trigger: homeassistant
+    event: start
+  - trigger: time_pattern
+    minutes: /5
+  variables:
+    humidity:        "{{ states('sensor.tz3000_utwgoauk_snzb_02_humidity') | float(0) }}"
+    set_point:       "{{ states('input_number.humidity_set_point') | float(0) }}"
+    tolerance:       "{{ states('input_number.humidity_tolerance') | float(0) }}"
+    dehum_on:        "{{ is_state('switch.mini_plug_4_socket_1', 'on') }}"
+    humid_on:        "{{ is_state('switch.studio_humidifier_socket_1', 'on') }}"
+    cooldown_active: "{{ is_state('timer.humidity_cooldown', 'active') }}"
+    dehum_grace:     "{{ is_state('timer.dehumidifier_manual_grace', 'active') }}"
+    humid_grace:     "{{ is_state('timer.humidifier_manual_grace', 'active') }}"
+    desired_dehum: >-
+      {{ true if humidity >= (set_point + tolerance)
+         else false if humidity < set_point
+         else dehum_on }}
+    desired_humid: >-
+      {{ true if humidity <= (set_point - tolerance)
+         else false if humidity > set_point
+         else humid_on }}
   conditions:
-  - condition: state
+  - "{{ states('sensor.tz3000_utwgoauk_snzb_02_humidity') not in ['unavailable', 'unknown'] }}"
+  - "{{ states('input_number.humidity_set_point') not in ['unavailable', 'unknown'] }}"
+  - "{{ states('input_number.humidity_tolerance') not in ['unavailable', 'unknown'] }}"
+  - "{{ states('switch.mini_plug_4_socket_1') not in ['unavailable', 'unknown'] }}"
+  - "{{ states('switch.studio_humidifier_socket_1') not in ['unavailable', 'unknown'] }}"
+  actions:
+  - choose:
+    # 1) Mutual-exclusion safety — both on: humidity picks the loser.
+    #    Overrides cooldown and grace. Backstop for externally-induced both-on.
+    - conditions: "{{ dehum_on and humid_on }}"
+      sequence:
+      - if: "{{ humidity > set_point }}"
+        then:
+        - action: input_boolean.turn_off
+          target:
+            entity_id: input_boolean.humidifier_intended
+        - action: switch.turn_off
+          target:
+            entity_id: switch.studio_humidifier_socket_1
+        else:
+        - action: input_boolean.turn_off
+          target:
+            entity_id: input_boolean.dehumidifier_intended
+        - action: switch.turn_off
+          target:
+            entity_id: switch.mini_plug_4_socket_1
+      - action: timer.start
+        target:
+          entity_id: timer.humidity_cooldown
+    # 2) Dehumidifier should turn OFF (respect manual grace). Start cooldown.
+    - conditions: "{{ not desired_dehum and dehum_on and not dehum_grace }}"
+      sequence:
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.dehumidifier_intended
+      - action: switch.turn_off
+        target:
+          entity_id: switch.mini_plug_4_socket_1
+      - action: timer.start
+        target:
+          entity_id: timer.humidity_cooldown
+    # 3) Humidifier should turn OFF (respect manual grace). Start cooldown.
+    - conditions: "{{ not desired_humid and humid_on and not humid_grace }}"
+      sequence:
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.humidifier_intended
+      - action: switch.turn_off
+        target:
+          entity_id: switch.studio_humidifier_socket_1
+      - action: timer.start
+        target:
+          entity_id: timer.humidity_cooldown
+    # 4) Dehumidifier should turn ON. Gated on: humidifier off (mutual
+    #    exclusion), no dehum grace, cooldown not active.
+    - conditions: >-
+        {{ desired_dehum and not dehum_on and not humid_on
+           and not dehum_grace and not cooldown_active }}
+      sequence:
+      - action: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.dehumidifier_intended
+      - action: switch.turn_on
+        target:
+          entity_id: switch.mini_plug_4_socket_1
+    # 5) Humidifier should turn ON. Gated on: dehumidifier off (mutual
+    #    exclusion), no humid grace, cooldown not active.
+    - conditions: >-
+        {{ desired_humid and not humid_on and not dehum_on
+           and not humid_grace and not cooldown_active }}
+      sequence:
+      - action: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.humidifier_intended
+      - action: switch.turn_on
+        target:
+          entity_id: switch.studio_humidifier_socket_1
+  mode: single
+
+- id: studio_humidity_manual_detector
+  alias: Studio Humidity Manual Detector
+  description: >-
+    Detect manual flips of the studio humidifier/dehumidifier switches (any
+    change the controller did not command, identified via the *_intended
+    mirrors) and arm that switch's 15-min grace window so the controller leaves
+    a manual override alone.
+  triggers:
+  - trigger: state
     entity_id: switch.mini_plug_4_socket_1
-    state: "off"
-  actions:
-  - action: switch.turn_on
-    target:
-      entity_id: switch.mini_plug_4_socket_1
-  mode: single
-
-- id: dehumidifier_off
-  alias: Dehumidifier OFF
-  description: >-
-    Turn the dehumidifier off when humidity falls below set_point.
-  triggers:
-  - trigger: numeric_state
-    entity_id: sensor.tz3000_utwgoauk_snzb_02_humidity
-    below: input_number.humidity_set_point
-  conditions:
-  - condition: state
-    entity_id: switch.mini_plug_4_socket_1
-    state: "on"
-  actions:
-  - action: switch.turn_off
-    target:
-      entity_id: switch.mini_plug_4_socket_1
-  mode: single
-
-- id: humidifier_on
-  alias: Humidifier ON
-  description: >-
-    Turn the humidifier on when humidity falls below set_point - tolerance.
-  triggers:
-  - trigger: numeric_state
-    entity_id: sensor.tz3000_utwgoauk_snzb_02_humidity
-    below: sensor.humidity_low_threshold
-  conditions:
-  - condition: state
+  - trigger: state
     entity_id: switch.studio_humidifier_socket_1
-    state: "off"
-  actions:
-  - action: switch.turn_on
-    target:
-      entity_id: switch.studio_humidifier_socket_1
-  mode: single
-
-- id: humidifier_off
-  alias: Humidifier OFF
-  description: >-
-    Turn the humidifier off when humidity rises above set_point.
-  triggers:
-  - trigger: numeric_state
-    entity_id: sensor.tz3000_utwgoauk_snzb_02_humidity
-    above: input_number.humidity_set_point
   conditions:
-  - condition: state
-    entity_id: switch.studio_humidifier_socket_1
-    state: "on"
+  - "{{ trigger.to_state.state in ['on', 'off'] }}"
+  - "{{ not trigger.from_state or trigger.from_state.state != trigger.to_state.state }}"
   actions:
-  - action: switch.turn_off
-    target:
-      entity_id: switch.studio_humidifier_socket_1
-  mode: single
+  - choose:
+    - conditions: >-
+        {{ trigger.entity_id == 'switch.mini_plug_4_socket_1'
+           and trigger.to_state.state != states('input_boolean.dehumidifier_intended') }}
+      sequence:
+      - action: "input_boolean.turn_{{ trigger.to_state.state }}"
+        target:
+          entity_id: input_boolean.dehumidifier_intended
+      - action: timer.start
+        target:
+          entity_id: timer.dehumidifier_manual_grace
+    - conditions: >-
+        {{ trigger.entity_id == 'switch.studio_humidifier_socket_1'
+           and trigger.to_state.state != states('input_boolean.humidifier_intended') }}
+      sequence:
+      - action: "input_boolean.turn_{{ trigger.to_state.state }}"
+        target:
+          entity_id: input_boolean.humidifier_intended
+      - action: timer.start
+        target:
+          entity_id: timer.humidifier_manual_grace
+  mode: queued
