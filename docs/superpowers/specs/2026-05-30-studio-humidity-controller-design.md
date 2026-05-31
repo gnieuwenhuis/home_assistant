@@ -88,7 +88,15 @@ Two automations under the `# Humidity` banner replace the four existing ones.
 
 ### `studio_humidity_controller` — reconciler
 
-**Mode:** `restart` (latest state wins; delta-only logic makes re-entry a no-op).
+**Mode:** `single`.
+
+> **Why `single`, not `restart`:** the controller triggers on the same switches it commands.
+> Under `restart`, the controller turning a switch off mid-sequence would restart its own run
+> and could cancel the line that starts the cooldown timer — defeating the relaxation. Under
+> `single`, the controller's own switch-change events are dropped while it is running (the run
+> finishes, including starting the cooldown), and the deferred turn-on is driven later by the
+> `timer.finished` trigger and the heartbeat. Matches the HVAC controllers, which are also
+> `single`.
 
 **Triggers:**
 
@@ -101,25 +109,34 @@ Two automations under the `# Humidity` banner replace the four existing ones.
 - Home Assistant start
 - a 5-minute periodic heartbeat
 
-**Logic, each cycle, in order:**
+**Derive desired state** with hysteresis (computed in `variables:`):
+- dehumidifier: want ON when `H ≥ S+T`, OFF when `H < S`, else hold current
+- humidifier: want ON when `H ≤ S−T`, OFF when `H > S`, else hold current
+- (both can never want ON simultaneously since `T > 0`)
 
-1. **Short-circuit** if `H`, `S`, or `T` is `unavailable`/`unknown` → no writes.
-2. **Mutual-exclusion safety (always — overrides cooldown *and* grace):** if both switches
-   are on, humidity decides the winner:
-   - `H > S` → turn the **humidifier** off
-   - otherwise → turn the **dehumidifier** off
-3. **Derive desired state** with hysteresis:
-   - dehumidifier: want ON when `H ≥ S+T`, OFF when `H < S`, else hold current
-   - humidifier: want ON when `H ≤ S−T`, OFF when `H > S`, else hold current
-   - (both can never want ON simultaneously since `T > 0`)
-4. **Apply per switch:**
-   - skip if that switch's manual-grace timer is active (respect manual)
-   - skip no-ops (delta-only)
-   - if the action is a **turn-on** and `timer.humidity_cooldown` is active → skip it
-     (relaxation)
-   - on any **turn-off**, (re)start `timer.humidity_cooldown`
-   - before issuing a command, set the matching `*_intended` mirror so the controller's own
-     action is not later flagged as manual
+**Action: one `choose:` that performs at most ONE action per run** (first matching branch
+wins). Doing a single action per run is what makes the relaxation race-free: an off-branch
+starts the cooldown *before* its run ends, so any later turn-on (driven by a subsequent
+trigger) sees the cooldown active. The prioritized branches:
+
+1. **Short-circuit** if `H`, `S`, or `T` is `unavailable`/`unknown` → no writes (this is in
+   `conditions:`, so the whole automation is skipped).
+2. **Mutual-exclusion safety (overrides cooldown *and* grace):** if both switches are on,
+   humidity decides the winner — `H > S` → turn the **humidifier** off; otherwise turn the
+   **dehumidifier** off; then start the cooldown timer.
+3. **Dehumidifier turn-OFF:** `desired_dehum` false, dehum on, no dehum grace → set mirror
+   off, turn off, start cooldown.
+4. **Humidifier turn-OFF:** `desired_humid` false, humid on, no humid grace → set mirror off,
+   turn off, start cooldown.
+5. **Dehumidifier turn-ON:** `desired_dehum` true, dehum off, humidifier off (mutual
+   exclusion), no dehum grace, cooldown **not** active → set mirror on, turn on.
+6. **Humidifier turn-ON:** `desired_humid` true, humid off, dehumidifier off (mutual
+   exclusion), no humid grace, cooldown **not** active → set mirror on, turn on.
+
+In every branch the `*_intended` mirror is set *before* the switch command so the controller's
+own action is never mis-read as manual. Turn-ON branches additionally require the opposite
+device to be off, so a turn-on can never *create* a both-on state — branch 2 is only a backstop
+for externally-induced both-on (e.g. two simultaneous manual flips).
 
 ### `studio_humidity_manual_detector` — manual-flip detection
 
@@ -130,16 +147,21 @@ Two automations under the `# Humidity` banner replace the four existing ones.
 - update the mirror to the new (manual) reality, and
 - start that switch's 15-minute grace timer.
 
-Also (re)start `timer.humidity_cooldown` on any switch → off transition, so a manual off also
-triggers the relaxation period.
+The detector does **not** touch `timer.humidity_cooldown`. The cooldown is started only by the
+controller's own turn-off branches, which keeps it race-free (it is set within the same run,
+before any later turn-on is evaluated). This means the relaxation period covers
+**controller-driven** turn-offs — including the overshoot ping-pong that caused the incident
+(humidifier turns off at set point → dehumidifier turn-on is held for 15 min). A purely
+**manual** turn-off does not arm the cooldown; manual changes are instead protected by the
+grace window.
 
 ## How the requirements are met
 
 - **Never both on:** step 2 runs every cycle and on every switch change, overriding cooldown
   and grace. A manual flip into both-on self-heals within seconds.
-- **Forced relaxation:** any off (controller or manual) starts the 15-min cooldown; turn-ons
-  are blocked while it runs, giving an overshoot time to settle before the opposite device can
-  engage.
+- **Forced relaxation:** a controller-driven off starts the 15-min cooldown; turn-ons are
+  blocked while it runs, giving an overshoot time to settle before the opposite device can
+  engage. (Manual offs rely on the grace window instead.)
 - **Respect manual flips:** a manually changed switch is left alone for 15 min (except the
   both-on safety), then the heartbeat reconciles it back to the humidity-driven state.
 
