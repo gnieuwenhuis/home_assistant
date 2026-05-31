@@ -5,13 +5,14 @@
 #   1. In Settings → Devices & services → Helpers, delete each of the
 #      helpers below. (UI-defined and YAML-defined helpers with the same
 #      entity_id will conflict.)
-#   2. Add these three lines to configuration.yaml (top level):
+#   2. Add these four lines to configuration.yaml (top level):
 #        input_number:  !include helpers.yaml
 #        input_boolean: !include helpers.yaml
 #        input_select:  !include helpers.yaml
+#        timer:         !include helpers.yaml
 #      (HA reads each top-level key from the included file.)
 #   3. From Developer Tools → YAML, reload "Input Number", "Input Boolean",
-#      and "Input Select" — or restart HA.
+#      "Input Select", and "Timer" — or restart HA.
 #
 # Note on backup_heat: its UI-defined unique_id is `disable_heat_pump` but
 # the entity was renamed in the UI to `input_boolean.backup_heat` (which
@@ -77,6 +78,12 @@ input_boolean:
   backup_heat:
     name: Backup Heat Mode
     icon: mdi:snowflake-thermometer
+  dehumidifier_intended:
+    name: Dehumidifier Intended
+    icon: mdi:air-humidifier-off
+  humidifier_intended:
+    name: Humidifier Intended
+    icon: mdi:air-humidifier
 
 input_select:
   heat_pump_mode:
@@ -85,3 +92,17 @@ input_select:
     options:
       - heating
       - cooling
+
+timer:
+  humidity_cooldown:
+    name: Humidity Cooldown
+    duration: "00:15:00"
+    restore: true
+  dehumidifier_manual_grace:
+    name: Dehumidifier Manual Grace
+    duration: "00:15:00"
+    restore: true
+  humidifier_manual_grace:
+    name: Humidifier Manual Grace
+    duration: "00:15:00"
+    restore: true
