@@ -68,12 +68,38 @@ When `sensor.lethbridge_temperature < −12 °C` for 20 minutes, `input_boolean.
 
 ### Humidity (independent of HVAC)
 
-Asymmetric hysteresis around `input_number.humidity_set_point` with `input_number.humidity_tolerance`:
+A single state-driven controller (`studio_humidity_controller` in `automations.yaml`)
+reconciles the dehumidifier plug (`switch.mini_plug_4_socket_1`) and humidifier plug
+(`switch.studio_humidifier_socket_1`) from the current reading of the shared Zigbee humidity
+sensor — the same reconcile-on-delta pattern as the HVAC controllers. It replaced four
+edge-triggered on/off automations that could strand a device (and run both at once) when a
+threshold crossing was missed.
 
-- Dehumidifier: on when humidity `> set_point + tolerance`, off when `< set_point`
-- Humidifier: on when humidity `< set_point − tolerance`, off when `> set_point`
+Asymmetric hysteresis around `input_number.humidity_set_point` with
+`input_number.humidity_tolerance`:
 
-So inside `[set_point − tolerance, set_point + tolerance]` both stay in whatever state they were last in — that's the intentional dead band.
+- Dehumidifier: wants on when humidity `≥ set_point + tolerance`, off when `< set_point`
+- Humidifier: wants on when humidity `≤ set_point − tolerance`, off when `> set_point`
+- Inside `[set_point − tolerance, set_point + tolerance]` each device holds its last state —
+  the intentional dead band.
+
+Three invariants are enforced by construction:
+
+- **Never both on.** Turn-on branches require the opposite device to be off; a mutual-exclusion
+  safety branch turns off the wrong device (humidity decides) if both are ever on.
+- **Relaxation cooldown.** Any controller turn-off starts `timer.humidity_cooldown` (15 min);
+  turn-ons are blocked while it runs, so an overshoot can't immediately trip the opposite
+  device. The controller is `mode: single` so its own switch events don't restart it mid-run;
+  the deferred turn-on is driven by the `timer.finished` trigger and the 5-min heartbeat.
+- **Respect manual flips.** `studio_humidity_manual_detector` compares each switch change
+  against an `input_boolean.<device>_intended` mirror (set by the controller before it
+  commands) to tell manual changes apart from controller ones, and arms a 15-min
+  `timer.<device>_manual_grace`; the controller leaves a switch alone while its grace timer is
+  active (except the both-on safety).
+
+The new helpers (`input_boolean.dehumidifier_intended`, `input_boolean.humidifier_intended`,
+and the three `timer.*` entities) follow the same "UI-defined now, mirrored in `helpers.yaml`
+for the eventual migration" status as the other helpers.
 
 ## Conventions
 
