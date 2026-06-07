@@ -434,8 +434,10 @@
 #
 # Suggest-and-confirm seasonal changeover — see docs/superpowers/specs/
 # 2026-06-07-changeover-advisor-design.md. sensor.changeover_balance
-# (configuration.yaml) nominates heating / cooling / off from 48 h of EC
-# hourly forecast degree-hours; the advisor only notifies when a room whose
+# (configuration.yaml) nominates heating / cooling / off from 24 h of EC
+# hourly forecast degree-hours plus a 2-day daily-forecast agreement gate (it
+# only suggests when the near-term and multi-day regimes agree); the advisor
+# only notifies when a room whose
 # heat pump has been idle (duty-cycle alibi) confirms the demand, no hold is
 # running, and backup heat is off. A human gates every changeover via the
 # actionable notification. timer.changeover_hold: 12 h after any suggestion

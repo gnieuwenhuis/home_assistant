@@ -88,11 +88,16 @@ When `sensor.lethbridge_temperature < −12 °C` for 20 minutes, `input_boolean.
 ### Changeover advisor (suggest + confirm)
 
 `heat_pump_mode` is never switched autonomously. `sensor.changeover_balance`
-(hourly) integrates the next 48 h of Environment Canada hourly forecast into
-heating/cooling degree-hours around `input_number.changeover_balance_point`
-(~16 °C); outside `±input_number.changeover_deadband` it nominates
-heating/cooling, inside it nominates off (open windows) — so the outdoor
-gates (no AC when cold out, no heat when warm out) fall out of the math.
+(hourly) blends two forecasts. The **24 h** Environment Canada hourly forecast
+yields heating/cooling degree-hours around `input_number.changeover_balance_point`
+(~16 °C); outside `±input_number.changeover_deadband` (deploys as 12 °C·h for
+the 24 h window) this hourly candidate nominates heating/cooling, inside it
+nominates off (open windows). The next **2** daily entries (mean of high/low)
+yield a daily candidate via the same macros, dead band
+`input_number.changeover_daily_deadband` (°C·day, default 1.0). The advisor
+suggests only when the two candidates AGREE — encoding "cold now AND cold for
+the next 2 days" — and the outdoor gates (no AC when cold out, no heat when
+warm out) still fall out of the degree-hour math.
 
 A nomination only becomes a Pixel 8 actionable notification
 (`heat_pump_mode_advisor`) when a room confirms the demand **with a
@@ -143,7 +148,8 @@ The new helpers (`input_boolean.dehumidifier_intended`, `input_boolean.humidifie
 and the three `timer.*` entities) follow the same "UI-defined now, mirrored in `helpers.yaml`
 for the eventual migration" status as the other helpers. The changeover advisor adds four more
 in the same status: `input_number.changeover_balance_point`, `input_number.changeover_deadband`,
-`timer.changeover_hold`, and the `"off"` option on `input_select.heat_pump_mode`.
+`input_number.changeover_daily_deadband`, `timer.changeover_hold`, and the `"off"` option on
+`input_select.heat_pump_mode`.
 
 ## Conventions
 

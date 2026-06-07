@@ -100,9 +100,11 @@ template:
         state: >-
           {{ states('input_number.humidity_set_point') | float
              - states('input_number.humidity_tolerance') | float }}
-  # Changeover advisor: degree-hour balance over the next 48 h of EC hourly
-  # forecast. Refreshes hourly and on HA start; goes unavailable when the
-  # forecast call fails (continue_on_error leaves changeover_forecast
+  # Changeover advisor: degree-hour balance over the next 24 h of EC hourly
+  # forecast, plus a 2-day daily regime exposed as daily_cdh/daily_hdh
+  # attributes (from a second weather.get_forecasts type: daily call).
+  # Refreshes hourly and on HA start; goes unavailable when EITHER forecast is
+  # missing (continue_on_error leaves changeover_forecast / changeover_daily_forecast
   # undefined → availability false), which short-circuits the advisor.
   # Design: docs/superpowers/specs/2026-06-07-changeover-advisor-design.md
   # State is routinely negative (CDH − HDH): negative = net heating load. Not a sign error.
