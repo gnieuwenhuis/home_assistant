@@ -172,6 +172,19 @@ async def test_daily_means_one_null_field_uses_present(hass_repo):
     assert means(hass_repo, entries) == [22.0]
 
 
+async def test_daily_means_absent_key_falls_back(hass_repo):
+    # An entry missing the templow KEY entirely (not just null) must behave
+    # like a null field — fall back to the present field — not raise.
+    entries = "[{'temperature': 20, 'templow': 10}, {'temperature': 18}]"
+    assert means(hass_repo, entries) == [15.0, 18.0]
+
+
+async def test_daily_means_entry_missing_both_keys_dropped(hass_repo):
+    # An entry with neither key is dropped, like the both-null case.
+    entries = "[{'temperature': 20, 'templow': 10}, {}]"
+    assert means(hass_repo, entries) == [15.0]
+
+
 async def test_daily_means_composes_with_degree_hours(hass_repo):
     # The macro exists to feed the degree-hour macros. Consumers must
     # deserialize with | from_json so the result is a real list, not a
