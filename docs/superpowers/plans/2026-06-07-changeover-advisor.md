@@ -1160,7 +1160,7 @@ git commit -m "Document changeover advisor and test harness in CLAUDE.md"
 
 No repo files change in this task (except a possible entity-id correction). These steps run against the live HA instance and are the spec's staged deployment.
 
-- [ ] **Step 1: Verify the weather entity.** In HA: Developer Tools → Actions → `weather.get_forecasts`, target `weather.lethbridge`, type `hourly`. Confirm it returns ≥ 48 hourly entries with `temperature`. Also run `weather.get_forecasts` with type `daily` on `weather.lethbridge` and confirm it returns ≥ 2 days, each with `temperature` and `templow` (the advisor needs both hourly and daily). If the entity id differs, update it in `configuration.yaml` (balance sensor) and `tests/test_changeover_balance_sensor.py` (fixture + assertions), re-run pytest, and commit the correction.
+- [ ] **Step 1: Verify the weather entity.** In HA: Developer Tools → Actions → `weather.get_forecasts`, target `weather.lethbridge`, type `hourly`. Confirm it returns hourly entries with `temperature` (EC's hourly forecast reaches ~24 h — that is expected, the advisor blends it with the daily forecast below). Also run `weather.get_forecasts` with type `daily` on `weather.lethbridge` and confirm it returns ≥ 2 days, each with `temperature` and `templow` (the advisor needs both hourly and daily). If the entity id differs, update it in `configuration.yaml` (balance sensor) and `tests/test_changeover_balance_sensor.py` (fixture + assertions), re-run pytest, and commit the correction.
 
 - [ ] **Step 2: Create the UI helpers** (Settings → Devices & services → Helpers), mirroring Task 4 exactly:
   - Edit `input_select.heat_pump_mode`: add option `off`
