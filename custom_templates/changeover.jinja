@@ -78,7 +78,9 @@
    field falls back to the present one; an entry with neither is dropped so it
    cannot fabricate a degree-day (mirrors the null-hour neutrality of the
    degree-hour macros). Reuses cooling/heating_degree_hours + candidate_mode
-   downstream — no daily-specific degree math needed. #}
+   downstream — no daily-specific degree math needed.
+   Emits JSON; compose via `daily_means(...) | from_json` so the result is a
+   real list, not a string iterated char-by-char. #}
 {% macro daily_means(entries) -%}
   {%- set ns = namespace(out=[]) -%}
   {%- for e in entries -%}
@@ -94,5 +96,5 @@
       {%- set ns.out = ns.out + [lo | float] -%}
     {%- endif -%}
   {%- endfor -%}
-  {{ ns.out }}
+  {{ ns.out | to_json }}
 {%- endmacro %}

@@ -170,3 +170,19 @@ async def test_daily_means_one_null_field_uses_present(hass_repo):
     # so the day still contributes its real, known temperature.
     entries = "[{'temperature': 22, 'templow': none}]"
     assert means(hass_repo, entries) == [22.0]
+
+
+async def test_daily_means_composes_with_degree_hours(hass_repo):
+    # The macro exists to feed the degree-hour macros. Consumers must
+    # deserialize with | from_json so the result is a real list, not a
+    # string iterated character-by-character. Two daily means of -3.0 at
+    # balance 16 → hdh (16 - -3) * 2 = 38, cdh 0.
+    src = (
+        "{% from 'changeover.jinja' import daily_means, "
+        "heating_degree_hours, cooling_degree_hours %}"
+        "{% set entries = [{'temperature': 2.0, 'templow': -8.0}, "
+        "{'temperature': 2.0, 'templow': -8.0}] %}"
+        "{% set means = daily_means(entries) | from_json %}"
+    )
+    assert render(hass_repo, src + "{{ heating_degree_hours(means, 16) }}") == 38.0
+    assert render(hass_repo, src + "{{ cooling_degree_hours(means, 16) }}") == 0.0
