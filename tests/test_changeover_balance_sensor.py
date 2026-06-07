@@ -36,9 +36,9 @@ async def balance(hass_helpers):
             raise HomeAssistantError("EC unreachable")
         forecast_type = call.data.get("type")
         if forecast_type == "daily":
-            return {"weather.lethbridge": {"forecast": mode["daily"]}}
+            return {"weather.lethbridge_forecast": {"forecast": mode["daily"]}}
         return {
-            "weather.lethbridge": {
+            "weather.lethbridge_forecast": {
                 "forecast": [{"temperature": t} for t in mode["temps"]]
             }
         }

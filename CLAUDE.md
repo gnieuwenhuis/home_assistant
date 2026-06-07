@@ -23,7 +23,7 @@ Not tracked (in `.gitignore`):
 - `home-assistant.log*`, `home-assistant_v2.db*`, `.HA_VERSION`, `.uuid`, `deps/`, `tts/`, `image/`, `.cloud/` — HA runtime artifacts
 - `.storage/` — HA's internal state store; rewritten constantly, and `.storage/auth*` holds tokens
 
-External entities that automations reference but that are defined elsewhere (Zigbee integrations, weather integrations, mobile companion app): `sensor.lethbridge_temperature`, `weather.lethbridge` (EC weather entity used by `sensor.changeover_balance`), `sensor.office_temperature`, `sensor.studio_temperature`, `sensor.tz3000_utwgoauk_snzb_02_humidity`, `mobile_app_pixel_8`. Don't assume an entity is undefined just because it isn't grep-able locally.
+External entities that automations reference but that are defined elsewhere (Zigbee integrations, weather integrations, mobile companion app): `sensor.lethbridge_temperature`, `weather.lethbridge_forecast` (EC weather entity used by `sensor.changeover_balance`), `sensor.office_temperature`, `sensor.studio_temperature`, `sensor.tz3000_utwgoauk_snzb_02_humidity`, `mobile_app_pixel_8`. Don't assume an entity is undefined just because it isn't grep-able locally.
 
 ## Tests
 

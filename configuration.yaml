@@ -118,14 +118,14 @@ template:
         data:
           type: hourly
         target:
-          entity_id: weather.lethbridge
+          entity_id: weather.lethbridge_forecast
         response_variable: changeover_forecast
         continue_on_error: true
       - action: weather.get_forecasts
         data:
           type: daily
         target:
-          entity_id: weather.lethbridge
+          entity_id: weather.lethbridge_forecast
         response_variable: changeover_daily_forecast
         continue_on_error: true
     sensor:
@@ -135,12 +135,12 @@ template:
         state_class: measurement
         availability: >-
           {{ changeover_forecast is defined
-             and (changeover_forecast['weather.lethbridge']['forecast'] | count) > 0
+             and (changeover_forecast['weather.lethbridge_forecast']['forecast'] | count) > 0
              and changeover_daily_forecast is defined
-             and (changeover_daily_forecast['weather.lethbridge']['forecast'] | count) >= 2 }}
+             and (changeover_daily_forecast['weather.lethbridge_forecast']['forecast'] | count) >= 2 }}
         state: >-
           {% from 'changeover.jinja' import heating_degree_hours, cooling_degree_hours %}
-          {% set temps = changeover_forecast['weather.lethbridge']['forecast'][:48]
+          {% set temps = changeover_forecast['weather.lethbridge_forecast']['forecast'][:48]
                          | map(attribute='temperature') | list %}
           {% set bp = states('input_number.changeover_balance_point') | float(16) %}
           {{ (cooling_degree_hours(temps, bp) | float)
@@ -148,32 +148,32 @@ template:
         attributes:
           cdh: >-
             {% from 'changeover.jinja' import cooling_degree_hours %}
-            {% set temps = changeover_forecast['weather.lethbridge']['forecast'][:48]
+            {% set temps = changeover_forecast['weather.lethbridge_forecast']['forecast'][:48]
                            | map(attribute='temperature') | list %}
             {{ cooling_degree_hours(temps,
                  states('input_number.changeover_balance_point') | float(16)) | float }}
           hdh: >-
             {% from 'changeover.jinja' import heating_degree_hours %}
-            {% set temps = changeover_forecast['weather.lethbridge']['forecast'][:48]
+            {% set temps = changeover_forecast['weather.lethbridge_forecast']['forecast'][:48]
                            | map(attribute='temperature') | list %}
             {{ heating_degree_hours(temps,
                  states('input_number.changeover_balance_point') | float(16)) | float }}
           forecast_hours: >-
-            {{ changeover_forecast['weather.lethbridge']['forecast'][:48] | count }}
+            {{ changeover_forecast['weather.lethbridge_forecast']['forecast'][:48] | count }}
           daily_cdh: >-
             {% from 'changeover.jinja' import daily_means, cooling_degree_hours %}
             {% set means = daily_means(
-                 changeover_daily_forecast['weather.lethbridge']['forecast'][:2]) | from_json %}
+                 changeover_daily_forecast['weather.lethbridge_forecast']['forecast'][:2]) | from_json %}
             {{ cooling_degree_hours(means,
                  states('input_number.changeover_balance_point') | float(16)) | float }}
           daily_hdh: >-
             {% from 'changeover.jinja' import daily_means, heating_degree_hours %}
             {% set means = daily_means(
-                 changeover_daily_forecast['weather.lethbridge']['forecast'][:2]) | from_json %}
+                 changeover_daily_forecast['weather.lethbridge_forecast']['forecast'][:2]) | from_json %}
             {{ heating_degree_hours(means,
                  states('input_number.changeover_balance_point') | float(16)) | float }}
           daily_forecast_days: >-
-            {{ changeover_daily_forecast['weather.lethbridge']['forecast'][:2] | count }}
+            {{ changeover_daily_forecast['weather.lethbridge_forecast']['forecast'][:2] | count }}
 
 notify:
   - platform: group
