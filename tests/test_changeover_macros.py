@@ -55,3 +55,13 @@ async def test_candidate_off_inside_deadband(hass_repo):
 async def test_deadband_boundary_is_off(hass_repo):
     # exactly at +K stays off — strict inequality
     assert call(hass_repo, "{{ candidate_mode(30, 6, 24) }}") == "off"
+
+
+async def test_null_forecast_hours_are_neutral(hass_repo):
+    # A flaky EC hour ({'temperature': None}) must not error the sensor:
+    # null hours contribute zero degree-hours in both directions.
+    # [-10, none, -10, 'unavailable'], balance 16:
+    #   -10 → 26 hdh, none/unavailable → 0 each, -10 → 26 hdh = 52 total
+    temps = "[-10, none, -10, 'unavailable']"
+    assert call(hass_repo, "{{ heating_degree_hours(" + temps + ", 16) }}") == 52.0
+    assert call(hass_repo, "{{ cooling_degree_hours(" + temps + ", 16) }}") == 0.0

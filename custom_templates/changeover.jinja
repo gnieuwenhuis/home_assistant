@@ -9,12 +9,16 @@
    Degree-hours follow the standard seasonal-changeover convention: each
    forecast hour contributes max(0, distance past the balance point) in the
    heating or cooling direction. A mixed day (cold morning, hot afternoon)
-   contributes to BOTH, which is why this beats threshold-on-mean methods. #}
+   contributes to BOTH, which is why this beats threshold-on-mean methods.
+
+   Null/non-numeric forecast hours contribute zero degree-hours in both
+   directions rather than erroring: a missing temperature defaults to the
+   balance point, so max(0, balance - balance) = 0 in each direction. #}
 
 {% macro heating_degree_hours(temps, balance) -%}
   {%- set ns = namespace(total=0.0) -%}
   {%- for t in temps -%}
-    {%- set ns.total = ns.total + [(balance | float) - (t | float), 0] | max -%}
+    {%- set ns.total = ns.total + [(balance | float) - (t | float(balance | float)), 0] | max -%}
   {%- endfor -%}
   {{ ns.total | round(1) }}
 {%- endmacro %}
@@ -22,7 +26,7 @@
 {% macro cooling_degree_hours(temps, balance) -%}
   {%- set ns = namespace(total=0.0) -%}
   {%- for t in temps -%}
-    {%- set ns.total = ns.total + [(t | float) - (balance | float), 0] | max -%}
+    {%- set ns.total = ns.total + [(t | float(balance | float)) - (balance | float), 0] | max -%}
   {%- endfor -%}
   {{ ns.total | round(1) }}
 {%- endmacro %}
