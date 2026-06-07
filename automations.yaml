@@ -462,6 +462,12 @@
     candidate: >-
       {% from 'changeover.jinja' import candidate_mode %}
       {{- candidate_mode(cdh, hdh, deadband) -}}
+    daily_candidate: >-
+      {% from 'changeover.jinja' import candidate_mode %}
+      {{- candidate_mode(
+            state_attr('sensor.changeover_balance', 'daily_cdh') | float(0),
+            state_attr('sensor.changeover_balance', 'daily_hdh') | float(0),
+            states('input_number.changeover_daily_deadband') | float(1.0)) -}}
     current_mode: "{{ states('input_select.heat_pump_mode') }}"
     confirmed: >-
       {% from 'changeover.jinja' import confirmation %}
@@ -483,16 +489,19 @@
   - "{{ is_state('input_boolean.backup_heat', 'off') }}"
   - "{{ is_state('timer.changeover_hold', 'idle') }}"
   - "{{ candidate != current_mode }}"
+  - "{{ candidate == daily_candidate }}"
   - "{{ confirmed | string == 'True' }}"
   actions:
   - action: notify.mobile_app_pixel_8
     data:
       title: Heat pump changeover
       message: >-
-        Next 48 h: {{ cdh | round(0) | int }} cooling vs {{ hdh | round(0) | int }} heating
-        degree-hours. Office 2 h mean
-        {{ states('sensor.office_temperature_2h_mean') }} °C, studio 1 h mean
-        {{ states('sensor.studio_temperature_1h_mean') }} °C. Switch to
+        Next 24 h: {{ cdh | round(0) | int }} cooling vs {{ hdh | round(0) | int }}
+        heating degree-hours, and the 2-day trend agrees
+        ({{ state_attr('sensor.changeover_balance', 'daily_cdh') | round(0) | int }} vs
+        {{ state_attr('sensor.changeover_balance', 'daily_hdh') | round(0) | int }} °C·day).
+        Office 2 h mean {{ states('sensor.office_temperature_2h_mean') }} °C, studio
+        1 h mean {{ states('sensor.studio_temperature_1h_mean') }} °C. Switch to
         {{ candidate }}?
       data:
         tag: changeover
