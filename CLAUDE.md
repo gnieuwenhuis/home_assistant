@@ -12,6 +12,8 @@ Tracked:
 - `automations.yaml` — all automations (HVAC controllers, backup heat, humidity)
 - `scripts.yaml`, `scenes.yaml` — included from `configuration.yaml`; currently empty
 - `custom_templates/setpoint.jinja` — the heat-pump setpoint macro
+- `custom_templates/changeover.jinja` — changeover advisor decision macros
+- `tests/`, `pytest.ini`, `requirements-dev.txt` — pytest harness (see "Tests")
 - `helpers.yaml` — `input_number` / `input_boolean` / `input_select` definitions; **not yet wired** into `configuration.yaml` (see "Helpers migration" below)
 - `secrets.yaml.example` — placeholder showing which `!secret` keys must exist
 
@@ -21,9 +23,26 @@ Not tracked (in `.gitignore`):
 - `home-assistant.log*`, `home-assistant_v2.db*`, `.HA_VERSION`, `.uuid`, `deps/`, `tts/`, `image/`, `.cloud/` — HA runtime artifacts
 - `.storage/` — HA's internal state store; rewritten constantly, and `.storage/auth*` holds tokens
 
-External entities that automations reference but that are defined elsewhere (Zigbee integrations, weather integrations, mobile companion app): `sensor.lethbridge_temperature`, `sensor.office_temperature`, `sensor.studio_temperature`, `sensor.tz3000_utwgoauk_snzb_02_humidity`, `mobile_app_pixel_8`. Don't assume an entity is undefined just because it isn't grep-able locally.
+External entities that automations reference but that are defined elsewhere (Zigbee integrations, weather integrations, mobile companion app): `sensor.lethbridge_temperature`, `weather.lethbridge` (EC weather entity used by `sensor.changeover_balance`), `sensor.office_temperature`, `sensor.studio_temperature`, `sensor.tz3000_utwgoauk_snzb_02_humidity`, `mobile_app_pixel_8`. Don't assume an entity is undefined just because it isn't grep-able locally.
 
-There is no build / test / lint pipeline. Changes are deployed by syncing these files to the HA instance and reloading the relevant domain (automations, template entities) from the HA UI or via `homeassistant.reload_*` services.
+## Tests
+
+`pytest` covers the changeover logic: Level 2 tests render the
+`custom_templates/*.jinja` macros against a real HA template engine
+(`pytest-homeassistant-custom-component`); Level 3 tests load the changeover
+automations and the changeover-balance template sensor **from the real YAML
+files** and exercise triggers/conditions/actions with mocked services.
+
+```sh
+uv python install 3.14                       # once; HA 2026.6 needs Python ≥ 3.14
+uv venv .venv --python 3.14
+.venv/bin/pip install -r requirements-dev.txt   # keep pinned to the live HA version
+.venv/bin/pytest
+```
+
+There is no other build / lint pipeline. Changes are deployed by syncing these
+files to the HA instance and reloading the relevant domain (automations,
+template entities) from the HA UI or via `homeassistant.reload_*` services.
 
 ## Custom integrations (HACS)
 
@@ -66,6 +85,29 @@ The dead band (`swing` = `input_number.<room>_temp_range`) prevents thrash: insi
 
 When `sensor.lethbridge_temperature < −12 °C` for 20 minutes, `input_boolean.backup_heat` turns on, both baseboards are pushed to each room's `preferred` temperature, and the setpoint macro collapses (so the HVAC controllers stop driving the heat pumps hard). On warmup, baseboards are dropped to `preferred − 2.5 °C` so the heat pump leads again. The −2.5 °C offset is what lets the heat pump take primary duty without the baseboard fighting it — don't remove it casually.
 
+### Changeover advisor (suggest + confirm)
+
+`heat_pump_mode` is never switched autonomously. `sensor.changeover_balance`
+(hourly) integrates the next 48 h of Environment Canada hourly forecast into
+heating/cooling degree-hours around `input_number.changeover_balance_point`
+(~16 °C); outside `±input_number.changeover_deadband` it nominates
+heating/cooling, inside it nominates off (open windows) — so the outdoor
+gates (no AC when cold out, no heat when warm out) fall out of the math.
+
+A nomination only becomes a Pixel 8 actionable notification
+(`heat_pump_mode_advisor`) when a room confirms the demand **with a
+duty-cycle alibi**: indoor temperature is a regulated variable, so a room's
+smoothed mean (`sensor.<room>_temperature_<1h|2h>_mean`) only counts as
+evidence when that room's pump was idle (`sensor.<room>_heat_pump_duty_24h`
+< 2 %) — otherwise the pump itself may be the cause (the office head is
+oversized for its small room and overshoots, hence its longer 2 h window).
+
+`timer.changeover_hold` blocks suggestions while active: started for 12 h on
+every suggestion (nag floor) and 24 h on every mode change
+(`heat_pump_mode_changed`, which also powers down both heads when entering
+`off`). Decision logic lives in `custom_templates/changeover.jinja` as pure
+macros — tested in `tests/`, shared by the sensor and the advisor.
+
 ### Humidity (independent of HVAC)
 
 A single state-driven controller (`studio_humidity_controller` in `automations.yaml`)
@@ -99,7 +141,9 @@ Three invariants are enforced by construction:
 
 The new helpers (`input_boolean.dehumidifier_intended`, `input_boolean.humidifier_intended`,
 and the three `timer.*` entities) follow the same "UI-defined now, mirrored in `helpers.yaml`
-for the eventual migration" status as the other helpers.
+for the eventual migration" status as the other helpers. The changeover advisor adds four more
+in the same status: `input_number.changeover_balance_point`, `input_number.changeover_deadband`,
+`timer.changeover_hold`, and the `"off"` option on `input_select.heat_pump_mode`.
 
 ## Conventions
 
