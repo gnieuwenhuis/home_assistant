@@ -251,13 +251,13 @@ Expected: `test_daily_attributes_present` and `test_unavailable_when_daily_forec
           daily_cdh: >-
             {% from 'changeover.jinja' import daily_means, cooling_degree_hours %}
             {% set means = daily_means(
-                 changeover_daily_forecast['weather.lethbridge']['forecast'][:2]) %}
+                 changeover_daily_forecast['weather.lethbridge']['forecast'][:2]) | from_json %}
             {{ cooling_degree_hours(means,
                  states('input_number.changeover_balance_point') | float(16)) | float }}
           daily_hdh: >-
             {% from 'changeover.jinja' import daily_means, heating_degree_hours %}
             {% set means = daily_means(
-                 changeover_daily_forecast['weather.lethbridge']['forecast'][:2]) %}
+                 changeover_daily_forecast['weather.lethbridge']['forecast'][:2]) | from_json %}
             {{ heating_degree_hours(means,
                  states('input_number.changeover_balance_point') | float(16)) | float }}
           daily_forecast_days: >-
