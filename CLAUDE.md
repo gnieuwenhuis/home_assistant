@@ -35,7 +35,7 @@ files** and exercise triggers/conditions/actions with mocked services.
 
 ```sh
 uv python install 3.14                       # once; HA 2026.6 needs Python ≥ 3.14
-uv venv .venv --python 3.14
+uv venv .venv --python 3.14 --seed
 .venv/bin/pip install -r requirements-dev.txt   # keep pinned to the live HA version
 .venv/bin/pytest
 ```
