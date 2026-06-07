@@ -74,6 +74,26 @@ input_number:
     unit_of_measurement: "%"
     icon: mdi:water-percent
 
+  # Changeover advisor tunables (no `initial:` — values restore across
+  # restarts; defaults 16 °C / 24 °C·h are set when created in the UI).
+  changeover_balance_point:
+    name: Changeover Balance Point
+    min: 10
+    max: 22
+    step: 0.5
+    mode: box
+    unit_of_measurement: "°C"
+    icon: mdi:swap-vertical-circle-outline
+
+  changeover_deadband:
+    name: Changeover Deadband
+    min: 0
+    max: 200
+    step: 1
+    mode: box
+    unit_of_measurement: "°C·h"
+    icon: mdi:arrow-expand-vertical
+
 input_boolean:
   backup_heat:
     name: Backup Heat Mode
@@ -92,6 +112,7 @@ input_select:
     options:
       - heating
       - cooling
+      - "off"
 
 timer:
   humidity_cooldown:
@@ -105,4 +126,11 @@ timer:
   humidifier_manual_grace:
     name: Humidifier Manual Grace
     duration: "00:15:00"
+    restore: true
+
+  # Changeover advisor hold: started 12 h on every suggestion (nag floor),
+  # 24 h on every mode change (min time-in-mode). restore: true so an HA
+  # restart cannot erase a hold and re-open the nag window.
+  changeover_hold:
+    name: Changeover Hold
     restore: true

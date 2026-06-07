@@ -33,3 +33,8 @@ files/
 
 # macOS noise
 .DS_Store
+
+# Python test harness
+.venv/
+__pycache__/
+.pytest_cache/

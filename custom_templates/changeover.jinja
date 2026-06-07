@@ -1,0 +1,74 @@
+{# Changeover advisor decision macros.
+
+   Pure functions — every input is an argument, no states() lookups — so they
+   are unit-testable (tests/test_changeover_macros.py) and shared by the
+   changeover balance sensor (configuration.yaml) and the advisor automation
+   (automations.yaml). Design: docs/superpowers/specs/
+   2026-06-07-changeover-advisor-design.md
+
+   Degree-hours follow the standard seasonal-changeover convention: each
+   forecast hour contributes max(0, distance past the balance point) in the
+   heating or cooling direction. A mixed day (cold morning, hot afternoon)
+   contributes to BOTH, which is why this beats threshold-on-mean methods.
+
+   Null/non-numeric forecast hours contribute zero degree-hours in both
+   directions rather than erroring: a missing temperature defaults to the
+   balance point, so max(0, balance - balance) = 0 in each direction. #}
+
+{% macro heating_degree_hours(temps, balance) -%}
+  {%- set ns = namespace(total=0.0) -%}
+  {%- for t in temps -%}
+    {%- set ns.total = ns.total + [(balance | float) - (t | float(balance | float)), 0] | max -%}
+  {%- endfor -%}
+  {{ ns.total | round(1) }}
+{%- endmacro %}
+
+{% macro cooling_degree_hours(temps, balance) -%}
+  {%- set ns = namespace(total=0.0) -%}
+  {%- for t in temps -%}
+    {%- set ns.total = ns.total + [(t | float(balance | float)) - (balance | float), 0] | max -%}
+  {%- endfor -%}
+  {{ ns.total | round(1) }}
+{%- endmacro %}
+
+{# Candidate regime from the degree-hour balance. The ±deadband dead zone is
+   the flap-killer: inside it the answer is 'off' (open windows). The outdoor
+   gates fall out of the math — a cold forecast cannot nominate cooling. #}
+{% macro candidate_mode(cdh, hdh, deadband) -%}
+  {%- set balance = (cdh | float) - (hdh | float) -%}
+  {%- if balance > (deadband | float) -%}
+    cooling
+  {%- elif balance < -(deadband | float) -%}
+    heating
+  {%- else -%}
+    off
+  {%- endif -%}
+{%- endmacro %}
+
+{# Demand-based confirmation with a duty-cycle alibi: a room's smoothed
+   temperature only counts as evidence when its heat pump has been idle
+   (duty below duty_floor, in PERCENT — duties come from history_stats ratio
+   sensors, 0–100). Otherwise the pump itself may be the cause — the office
+   head especially, being oversized for its small room, overshoots hard.
+   Unparseable duty defaults to 100 (busy) so missing data fails safe.
+   A missing/unparseable mean defaults to its room's preferred (neutral —
+   cannot confirm either direction). #}
+{% macro confirmation(candidate, office_mean, studio_mean, office_duty, studio_duty,
+                      office_preferred, office_swing, studio_preferred, studio_swing,
+                      duty_floor=2) -%}
+  {%- set office_idle = (office_duty | float(100)) < (duty_floor | float) -%}
+  {%- set studio_idle = (studio_duty | float(100)) < (duty_floor | float) -%}
+  {%- set office_high = (office_mean | float(office_preferred | float)) > (office_preferred | float) + (office_swing | float) -%}
+  {%- set office_low  = (office_mean | float(office_preferred | float)) < (office_preferred | float) - (office_swing | float) -%}
+  {%- set studio_high = (studio_mean | float(studio_preferred | float)) > (studio_preferred | float) + (studio_swing | float) -%}
+  {%- set studio_low  = (studio_mean | float(studio_preferred | float)) < (studio_preferred | float) - (studio_swing | float) -%}
+  {%- if candidate == 'cooling' -%}
+    {{ (office_idle and office_high) or (studio_idle and studio_high) }}
+  {%- elif candidate == 'heating' -%}
+    {{ (office_idle and office_low) or (studio_idle and studio_low) }}
+  {%- elif candidate == 'off' -%}
+    {{ office_idle and studio_idle }}
+  {%- else -%}
+    False
+  {%- endif -%}
+{%- endmacro %}

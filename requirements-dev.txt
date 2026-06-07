@@ -1,0 +1,8 @@
+# Test harness for template macros and automation wiring.
+#
+# Keep pytest-homeassistant-custom-component pinned to the release matching
+# the live HA version (Settings → System → About on the HA instance, or
+# .HA_VERSION on the host — not tracked in this repo). Version table:
+#   https://github.com/MatthewFlamm/pytest-homeassistant-custom-component
+pytest-homeassistant-custom-component==0.13.337  # → HA 2026.6.1
+pyyaml
