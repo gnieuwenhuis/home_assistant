@@ -72,3 +72,30 @@
     False
   {%- endif -%}
 {%- endmacro %}
+
+{# Reduce EC daily forecast entries to one mean temperature each, for the
+   multi-day persistence regime. mean = (temperature + templow) / 2. A missing
+   field — whether absent from the dict entirely or present-but-null — falls
+   back to the present one; an entry with neither is dropped so it cannot
+   fabricate a degree-day (mirrors the null-hour neutrality of the degree-hour
+   macros). Reuses cooling/heating_degree_hours + candidate_mode downstream —
+   no daily-specific degree math needed.
+   Emits JSON; compose via `daily_means(...) | from_json` so the result is a
+   real list, not a string iterated char-by-char. #}
+{% macro daily_means(entries) -%}
+  {%- set ns = namespace(out=[]) -%}
+  {%- for e in entries -%}
+    {%- set hi = e.get('temperature') -%}
+    {%- set lo = e.get('templow') -%}
+    {%- set hi_ok = hi is not none and hi == hi | float(none) -%}
+    {%- set lo_ok = lo is not none and lo == lo | float(none) -%}
+    {%- if hi_ok and lo_ok -%}
+      {%- set ns.out = ns.out + [((hi | float) + (lo | float)) / 2] -%}
+    {%- elif hi_ok -%}
+      {%- set ns.out = ns.out + [hi | float] -%}
+    {%- elif lo_ok -%}
+      {%- set ns.out = ns.out + [lo | float] -%}
+    {%- endif -%}
+  {%- endfor -%}
+  {{ ns.out | to_json }}
+{%- endmacro %}

@@ -11,7 +11,10 @@ ADVISOR_IDS = {
     "heat_pump_mode_advisor_response",
     "heat_pump_mode_changed",
 }
-BALANCE_ATTRS = {"cdh": 50.0, "hdh": 6.0, "forecast_hours": 48}
+BALANCE_ATTRS = {
+    "cdh": 50.0, "hdh": 6.0, "forecast_hours": 48,
+    "daily_cdh": 4.0, "daily_hdh": 0.0, "daily_forecast_days": 2,
+}
 
 
 @pytest.fixture
@@ -51,6 +54,7 @@ async def arrange(hass, *, mode="heating", balance_state="44",
         ("input_number.studio_temp_range", 2),
         ("input_number.changeover_balance_point", 16),
         ("input_number.changeover_deadband", 24),
+        ("input_number.changeover_daily_deadband", 1.0),
     ]:
         await hass.services.async_call(
             "input_number", "set_value",
@@ -172,3 +176,25 @@ async def test_entering_off_powers_down_only_running_heads(advisor):
     assert len(switch_calls) == 1
     ent = switch_calls[0].data["entity_id"]
     assert ent in ("switch.office_power", ["switch.office_power"])
+
+
+async def test_no_suggestion_when_daily_disagrees(advisor):
+    hass, notify_calls, _ = advisor
+    # Hourly says cooling (cdh 50/hdh 6) but the 2-day daily trend is cold
+    # (daily_hdh dominant) → regimes disagree → no suggestion.
+    await arrange(hass)
+    hass.states.async_set(
+        "sensor.changeover_balance", "44",
+        {**BALANCE_ATTRS, "daily_cdh": 0.0, "daily_hdh": 8.0},
+    )
+    await run_advisor(hass)
+    assert notify_calls == []
+
+
+async def test_suggests_when_both_regimes_agree(advisor):
+    hass, notify_calls, _ = advisor
+    # Explicit agreement scene (mirrors the default arrange, kept for clarity).
+    await arrange(hass)
+    await run_advisor(hass)
+    assert len(notify_calls) == 1
+    assert notify_calls[0].data["data"]["actions"][0]["action"] == "CHANGEOVER_ACCEPT_cooling"

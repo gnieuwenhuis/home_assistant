@@ -1160,15 +1160,16 @@ git commit -m "Document changeover advisor and test harness in CLAUDE.md"
 
 No repo files change in this task (except a possible entity-id correction). These steps run against the live HA instance and are the spec's staged deployment.
 
-- [ ] **Step 1: Verify the weather entity.** In HA: Developer Tools → Actions → `weather.get_forecasts`, target `weather.lethbridge`, type `hourly`. Confirm it returns ≥ 48 hourly entries with `temperature`. If the entity id differs, update it in `configuration.yaml` (balance sensor) and `tests/test_changeover_balance_sensor.py` (fixture + assertions), re-run pytest, and commit the correction.
+- [ ] **Step 1: Verify the weather entity.** In HA: Developer Tools → Actions → `weather.get_forecasts`, target `weather.lethbridge`, type `hourly`. Confirm it returns hourly entries with `temperature` (EC's hourly forecast reaches ~24 h — that is expected, the advisor blends it with the daily forecast below). Also run `weather.get_forecasts` with type `daily` on `weather.lethbridge` and confirm it returns ≥ 2 days, each with `temperature` and `templow` (the advisor needs both hourly and daily). If the entity id differs, update it in `configuration.yaml` (balance sensor) and `tests/test_changeover_balance_sensor.py` (fixture + assertions), re-run pytest, and commit the correction.
 
 - [ ] **Step 2: Create the UI helpers** (Settings → Devices & services → Helpers), mirroring Task 4 exactly:
   - Edit `input_select.heat_pump_mode`: add option `off`
   - `input_number.changeover_balance_point` — min 10, max 22, step 0.5, box, °C; set value **16**
-  - `input_number.changeover_deadband` — min 0, max 200, step 1, box, °C·h; set value **24**
+  - `input_number.changeover_deadband` — min 0, max 200, step 1, box, °C·h; set value **12** (the hourly window is 24 h, not 48)
+  - `input_number.changeover_daily_deadband` — min 0, max 10, step 0.5, box, °C·day; set value **1.0**
   - `timer.changeover_hold` — no default duration, restore enabled
 
-- [ ] **Step 3: Sync repo files to the HA host** (the usual sync method): `configuration.yaml`, `automations.yaml`, `custom_templates/changeover.jinja`.
+- [ ] **Step 3: Sync repo files to the HA host** (the usual sync method): `configuration.yaml`, `automations.yaml`, `custom_templates/changeover.jinja`. This list already covers the forecast-blend changes — `changeover.jinja` now also includes the `daily_means` macro used by the balance sensor's `daily_cdh`/`daily_hdh` attributes.
 
 - [ ] **Step 4: Restart HA** (the new `sensor:` platform key — statistics/history_stats — is not covered by domain reloads).
 

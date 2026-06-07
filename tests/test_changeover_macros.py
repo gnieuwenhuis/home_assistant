@@ -141,3 +141,61 @@ async def test_unparseable_mean_is_neutral(hass_repo):
     assert render(hass_repo, expr("off", "'unknown'")) is True
     # the healthy room's evidence still works alongside a flaky one
     assert render(hass_repo, expr("cooling", "25.5")) is True
+
+
+MEANS_IMPORT = "{% from 'changeover.jinja' import daily_means %}"
+
+
+def means(hass, entries_literal):
+    return render(hass, MEANS_IMPORT + "{{ daily_means(" + entries_literal + ") }}")
+
+
+async def test_daily_means_basic(hass_repo):
+    # (high + low) / 2 per entry
+    entries = "[{'temperature': 20, 'templow': 10}, {'temperature': 4, 'templow': -2}]"
+    assert means(hass_repo, entries) == [15.0, 1.0]
+
+
+async def test_daily_means_null_field_is_neutral_skipped(hass_repo):
+    # A flaky daily entry with a null field must not error the sensor. The
+    # entry collapses to a neutral mean equal to whichever field is present;
+    # if both are null it is dropped so it cannot fabricate a degree-day.
+    entries = ("[{'temperature': 20, 'templow': 10}, "
+               "{'temperature': none, 'templow': none}]")
+    assert means(hass_repo, entries) == [15.0]
+
+
+async def test_daily_means_one_null_field_uses_present(hass_repo):
+    # Only templow missing → fall back to the present field (temperature),
+    # so the day still contributes its real, known temperature.
+    entries = "[{'temperature': 22, 'templow': none}]"
+    assert means(hass_repo, entries) == [22.0]
+
+
+async def test_daily_means_absent_key_falls_back(hass_repo):
+    # An entry missing the templow KEY entirely (not just null) must behave
+    # like a null field — fall back to the present field — not raise.
+    entries = "[{'temperature': 20, 'templow': 10}, {'temperature': 18}]"
+    assert means(hass_repo, entries) == [15.0, 18.0]
+
+
+async def test_daily_means_entry_missing_both_keys_dropped(hass_repo):
+    # An entry with neither key is dropped, like the both-null case.
+    entries = "[{'temperature': 20, 'templow': 10}, {}]"
+    assert means(hass_repo, entries) == [15.0]
+
+
+async def test_daily_means_composes_with_degree_hours(hass_repo):
+    # The macro exists to feed the degree-hour macros. Consumers must
+    # deserialize with | from_json so the result is a real list, not a
+    # string iterated character-by-character. Two daily means of -3.0 at
+    # balance 16 → hdh (16 - -3) * 2 = 38, cdh 0.
+    src = (
+        "{% from 'changeover.jinja' import daily_means, "
+        "heating_degree_hours, cooling_degree_hours %}"
+        "{% set entries = [{'temperature': 2.0, 'templow': -8.0}, "
+        "{'temperature': 2.0, 'templow': -8.0}] %}"
+        "{% set means = daily_means(entries) | from_json %}"
+    )
+    assert render(hass_repo, src + "{{ heating_degree_hours(means, 16) }}") == 38.0
+    assert render(hass_repo, src + "{{ cooling_degree_hours(means, 16) }}") == 0.0

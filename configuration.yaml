@@ -100,9 +100,11 @@ template:
         state: >-
           {{ states('input_number.humidity_set_point') | float
              - states('input_number.humidity_tolerance') | float }}
-  # Changeover advisor: degree-hour balance over the next 48 h of EC hourly
-  # forecast. Refreshes hourly and on HA start; goes unavailable when the
-  # forecast call fails (continue_on_error leaves changeover_forecast
+  # Changeover advisor: degree-hour balance over the next 24 h of EC hourly
+  # forecast, plus a 2-day daily regime exposed as daily_cdh/daily_hdh
+  # attributes (from a second weather.get_forecasts type: daily call).
+  # Refreshes hourly and on HA start; goes unavailable when EITHER forecast is
+  # missing (continue_on_error leaves changeover_forecast / changeover_daily_forecast
   # undefined → availability false), which short-circuits the advisor.
   # Design: docs/superpowers/specs/2026-06-07-changeover-advisor-design.md
   # State is routinely negative (CDH − HDH): negative = net heating load. Not a sign error.
@@ -119,6 +121,13 @@ template:
           entity_id: weather.lethbridge
         response_variable: changeover_forecast
         continue_on_error: true
+      - action: weather.get_forecasts
+        data:
+          type: daily
+        target:
+          entity_id: weather.lethbridge
+        response_variable: changeover_daily_forecast
+        continue_on_error: true
     sensor:
       - name: "Changeover Balance"
         unique_id: sensor.changeover_balance
@@ -126,7 +135,9 @@ template:
         state_class: measurement
         availability: >-
           {{ changeover_forecast is defined
-             and (changeover_forecast['weather.lethbridge']['forecast'] | count) > 0 }}
+             and (changeover_forecast['weather.lethbridge']['forecast'] | count) > 0
+             and changeover_daily_forecast is defined
+             and (changeover_daily_forecast['weather.lethbridge']['forecast'] | count) >= 2 }}
         state: >-
           {% from 'changeover.jinja' import heating_degree_hours, cooling_degree_hours %}
           {% set temps = changeover_forecast['weather.lethbridge']['forecast'][:48]
@@ -149,6 +160,20 @@ template:
                  states('input_number.changeover_balance_point') | float(16)) | float }}
           forecast_hours: >-
             {{ changeover_forecast['weather.lethbridge']['forecast'][:48] | count }}
+          daily_cdh: >-
+            {% from 'changeover.jinja' import daily_means, cooling_degree_hours %}
+            {% set means = daily_means(
+                 changeover_daily_forecast['weather.lethbridge']['forecast'][:2]) | from_json %}
+            {{ cooling_degree_hours(means,
+                 states('input_number.changeover_balance_point') | float(16)) | float }}
+          daily_hdh: >-
+            {% from 'changeover.jinja' import daily_means, heating_degree_hours %}
+            {% set means = daily_means(
+                 changeover_daily_forecast['weather.lethbridge']['forecast'][:2]) | from_json %}
+            {{ heating_degree_hours(means,
+                 states('input_number.changeover_balance_point') | float(16)) | float }}
+          daily_forecast_days: >-
+            {{ changeover_daily_forecast['weather.lethbridge']['forecast'][:2] | count }}
 
 notify:
   - platform: group

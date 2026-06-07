@@ -18,3 +18,10 @@ async def test_changeover_tunables_exist(hass_helpers):
 
 async def test_changeover_hold_timer_exists(hass_helpers):
     assert hass_helpers.states.get("timer.changeover_hold") is not None
+
+
+async def test_changeover_daily_deadband_exists(hass_helpers):
+    db = hass_helpers.states.get("input_number.changeover_daily_deadband")
+    assert db is not None
+    assert db.attributes["max"] == 10
+    assert db.attributes["unit_of_measurement"] == "°C·day"

@@ -25,11 +25,18 @@ for _tag in ("!secret", "!include", "!include_dir_merge_named",
 async def balance(hass_helpers):
     hass = hass_helpers
     config = yaml.load((REPO_ROOT / "configuration.yaml").read_text(), _StubTagLoader)
-    mode = {"fail": False, "temps": [-10.0] * 48}
+    mode = {
+        "fail": False,
+        "temps": [-10.0] * 48,
+        "daily": [{"temperature": 2.0, "templow": -8.0}] * 6,  # mean -3 → heating
+    }
 
     async def fake_forecast(call):
         if mode["fail"]:
             raise HomeAssistantError("EC unreachable")
+        forecast_type = call.data.get("type")
+        if forecast_type == "daily":
+            return {"weather.lethbridge": {"forecast": mode["daily"]}}
         return {
             "weather.lethbridge": {
                 "forecast": [{"temperature": t} for t in mode["temps"]]
@@ -95,5 +102,22 @@ async def test_long_forecast_clipped_to_48h(balance):
 async def test_balance_unavailable_when_forecast_fails(balance):
     hass, mode = balance
     mode["fail"] = True
+    await fire_hourly(hass)
+    assert hass.states.get("sensor.changeover_balance").state == "unavailable"
+
+
+async def test_daily_attributes_present(balance):
+    hass, _ = balance
+    await fire_hourly(hass)
+    state = hass.states.get("sensor.changeover_balance")
+    assert state.attributes["daily_forecast_days"] == 2          # clipped to 2
+    # 2 daily means of -3.0, balance 16 → hdh (16 - -3) * 2 = 38, cdh 0
+    assert state.attributes["daily_hdh"] == 38.0
+    assert state.attributes["daily_cdh"] == 0.0
+
+
+async def test_unavailable_when_daily_forecast_empty(balance):
+    hass, mode = balance
+    mode["daily"] = []
     await fire_hourly(hass)
     assert hass.states.get("sensor.changeover_balance").state == "unavailable"
