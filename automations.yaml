@@ -489,7 +489,7 @@
     data:
       title: Heat pump changeover
       message: >-
-        Next 48 h: {{ cdh | round(0) }} cooling vs {{ hdh | round(0) }} heating
+        Next 48 h: {{ cdh | round(0) | int }} cooling vs {{ hdh | round(0) | int }} heating
         degree-hours. Office 2 h mean
         {{ states('sensor.office_temperature_2h_mean') }} °C, studio 1 h mean
         {{ states('sensor.studio_temperature_1h_mean') }} °C. Switch to

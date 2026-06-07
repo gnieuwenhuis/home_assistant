@@ -105,6 +105,7 @@ template:
   # forecast call fails (continue_on_error leaves changeover_forecast
   # undefined → availability false), which short-circuits the advisor.
   # Design: docs/superpowers/specs/2026-06-07-changeover-advisor-design.md
+  # State is routinely negative (CDH − HDH): negative = net heating load. Not a sign error.
   - triggers:
       - trigger: time_pattern
         minutes: "0"
@@ -159,13 +160,14 @@ notify:
 # (history_stats ratio, PERCENT 0-100); the smoothed means ride out sensor
 # noise and head overshoot — the office gets the longer window because its
 # oversized head overshoots harder.
+# sampling_size 60 ≈ 2x the ~28 samples a 2 h window sees at the ~250 s neviweb scan_interval.
 sensor:
   - platform: statistics
     name: "Office Temperature 2h Mean"
     unique_id: office_temperature_2h_mean
     entity_id: sensor.office_baseboard_current_temperature
     state_characteristic: mean
-    sampling_size: 500
+    sampling_size: 60
     max_age:
       hours: 2
   - platform: statistics
@@ -173,7 +175,7 @@ sensor:
     unique_id: studio_temperature_1h_mean
     entity_id: sensor.studio_baseboard_current_temperature
     state_characteristic: mean
-    sampling_size: 500
+    sampling_size: 60
     max_age:
       hours: 1
   - platform: history_stats
