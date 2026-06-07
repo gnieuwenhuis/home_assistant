@@ -120,3 +120,24 @@ async def test_unparseable_duty_fails_safe(hass_repo):
 
 async def test_unknown_candidate_is_false(hass_repo):
     assert confirm(hass_repo, "nonsense", 17, 25.5, 0, 0) is False
+
+
+async def test_unparseable_mean_is_neutral(hass_repo):
+    # A flaky mean sensor renders as the string 'unknown'; it must not error
+    # the macro (HA renders automation variables before conditions can guard)
+    # and must not fabricate evidence — it defaults to preferred (neutral).
+    def expr(candidate, studio_mean):
+        return (
+            CONFIRM_IMPORT
+            + "{{ confirmation('"
+            + candidate
+            + "', 'unknown', "
+            + studio_mean
+            + ", 0, 0, 21, 2, 21, 2) }}"
+        )
+
+    assert render(hass_repo, expr("cooling", "'unknown'")) is False
+    assert render(hass_repo, expr("heating", "'unknown'")) is False
+    assert render(hass_repo, expr("off", "'unknown'")) is True
+    # the healthy room's evidence still works alongside a flaky one
+    assert render(hass_repo, expr("cooling", "25.5")) is True
