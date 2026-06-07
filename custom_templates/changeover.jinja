@@ -44,3 +44,29 @@
     off
   {%- endif -%}
 {%- endmacro %}
+
+{# Demand-based confirmation with a duty-cycle alibi: a room's smoothed
+   temperature only counts as evidence when its heat pump has been idle
+   (duty below duty_floor, in PERCENT — duties come from history_stats ratio
+   sensors, 0–100). Otherwise the pump itself may be the cause — the office
+   head especially, being oversized for its small room, overshoots hard.
+   Unparseable duty defaults to 100 (busy) so missing data fails safe. #}
+{% macro confirmation(candidate, office_mean, studio_mean, office_duty, studio_duty,
+                      office_preferred, office_swing, studio_preferred, studio_swing,
+                      duty_floor=2) -%}
+  {%- set office_idle = (office_duty | float(100)) < (duty_floor | float) -%}
+  {%- set studio_idle = (studio_duty | float(100)) < (duty_floor | float) -%}
+  {%- set office_high = (office_mean | float) > (office_preferred | float) + (office_swing | float) -%}
+  {%- set office_low  = (office_mean | float) < (office_preferred | float) - (office_swing | float) -%}
+  {%- set studio_high = (studio_mean | float) > (studio_preferred | float) + (studio_swing | float) -%}
+  {%- set studio_low  = (studio_mean | float) < (studio_preferred | float) - (studio_swing | float) -%}
+  {%- if candidate == 'cooling' -%}
+    {{ (office_idle and office_high) or (studio_idle and studio_high) }}
+  {%- elif candidate == 'heating' -%}
+    {{ (office_idle and office_low) or (studio_idle and studio_low) }}
+  {%- elif candidate == 'off' -%}
+    {{ office_idle and studio_idle }}
+  {%- else -%}
+    False
+  {%- endif -%}
+{%- endmacro %}

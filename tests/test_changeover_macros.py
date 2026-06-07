@@ -65,3 +65,58 @@ async def test_null_forecast_hours_are_neutral(hass_repo):
     temps = "[-10, none, -10, 'unavailable']"
     assert call(hass_repo, "{{ heating_degree_hours(" + temps + ", 16) }}") == 52.0
     assert call(hass_repo, "{{ cooling_degree_hours(" + temps + ", 16) }}") == 0.0
+
+
+CONFIRM_IMPORT = "{% from 'changeover.jinja' import confirmation %}"
+
+
+def confirm(hass, candidate, office_mean, studio_mean, office_duty, studio_duty):
+    """Both rooms: preferred 21, swing 2 → band [19, 23]. Duties in percent."""
+    expr = (
+        CONFIRM_IMPORT
+        + "{{ confirmation('" + candidate + "', "
+        + f"{office_mean}, {studio_mean}, {office_duty}, {studio_duty}, "
+        + "21, 2, 21, 2) }}"
+    )
+    return render(hass, expr)
+
+
+async def test_cooling_confirmed_by_idle_hot_studio(hass_repo):
+    assert confirm(hass_repo, "cooling", 21, 25.5, 0, 0) is True
+
+
+async def test_overshoot_alibi_blocks_busy_studio(hass_repo):
+    # Studio hot but its pump ran (15 % duty) → the pump may be the culprit.
+    assert confirm(hass_repo, "cooling", 21, 25.5, 0, 15) is False
+
+
+async def test_office_overshoot_alibi(hass_repo):
+    # Named regression from the spec: oversized office head overshoots; a hot
+    # office with nonzero duty cannot confirm cooling.
+    assert confirm(hass_repo, "cooling", 24.5, 21, 10, 0) is False
+
+
+async def test_heating_confirmed_by_idle_cold_office(hass_repo):
+    assert confirm(hass_repo, "heating", 17.0, 21, 0, 0) is True
+
+
+async def test_off_requires_both_idle(hass_repo):
+    assert confirm(hass_repo, "off", 21, 21, 0.5, 1.9) is True
+    assert confirm(hass_repo, "off", 21, 21, 0, 5) is False
+
+
+async def test_duty_floor_tolerates_heartbeat_blips(hass_repo):
+    # 1.9 % < the 2 % floor → still counts as idle.
+    assert confirm(hass_repo, "cooling", 21, 25.5, 0, 1.9) is True
+
+
+async def test_unparseable_duty_fails_safe(hass_repo):
+    expr = (
+        CONFIRM_IMPORT
+        + "{{ confirmation('cooling', 21, 25.5, 0, 'unknown', 21, 2, 21, 2) }}"
+    )
+    assert render(hass_repo, expr) is False
+
+
+async def test_unknown_candidate_is_false(hass_repo):
+    assert confirm(hass_repo, "nonsense", 17, 25.5, 0, 0) is False
