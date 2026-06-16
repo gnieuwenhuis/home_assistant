@@ -53,7 +53,13 @@
   - trigger: time_pattern
     minutes: /5
   variables:
-    lead: 2
+    # Command each head to the bound itself (no lead past it). The head's own
+    # sensor is unreliable and state-dependent (off: reads refrigerant-pipe temp
+    # driven by the other head; running: converges to room temp). Steering past
+    # the bound made a running head drive the room well past it (the over-cool
+    # yo-yo). At the bound, a running head eases off near the bound on its own,
+    # and the baseboard backstop (prompt turn-off) catches the startup transient.
+    lead: 0
     enabled: "{{ is_state('input_boolean.hvac_enable', 'on') }}"
     backup: "{{ is_state('input_boolean.backup_heat', 'on') }}"
     stored: "{{ states('input_select.system_hvac_mode') }}"
