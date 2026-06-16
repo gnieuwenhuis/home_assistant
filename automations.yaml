@@ -1,24 +1,216 @@
 # ============================================================
 # HVAC controllers
 # ------------------------------------------------------------
-# Each room has one event-driven controller. It fires when the
-# computed setpoint, mode, preferred temperature, or swing
-# changes, plus a 5-minute safety heartbeat. It turns the
-# room's heat pump on/off and keeps its hvac_mode and target
-# temperature aligned with the room's current need:
-#
-#   indoor < preferred − swing   → heating mode pumps on,
-#                                  cooling mode pumps off
-#   indoor > preferred + swing   → cooling mode pumps on,
-#                                  heating mode pumps off
-#   inside the dead band         → no action
-#
-# `swing` is read from input_number.<room>_temp_range, so a
-# single helper controls how aggressively the room cycles in
-# both heating and cooling. The mode-change trigger (2-min
-# debounce) subsumes the old mode-switch automations; the
-# "already on, drifted" branch subsumes setpoint-sync.
+# One coordinator drives the multi-split (shared compressor →
+# one system-wide heat/cool mode). It reads both rooms' two-
+# setpoint demand (heat below heat_bound, cool above cool_bound,
+# with a hysteresis differential past each bound), resolves a
+# single system-wide mode where heating wins any conflict, then
+# drives each head's power switch + climate target toward its
+# bound (a small lead past the bound keeps the inverter
+# committed). Short-cycle protection comes from per-head lockout
+# timers and a heat<->cool minimum dwell that pins the active
+# mode. Master-off (input_boolean.hvac_enable off) and backup-
+# heat force both heads off. Every Cielo call is gated on a real
+# desired-vs-current delta so no redundant API writes are made.
 # ============================================================
+
+- id: hvac_coordinator
+  alias: HVAC Coordinator
+  description: >-
+    One coordinator for the multi-split. Resolves a single system-wide mode from
+    both rooms' two-setpoint demand (heating wins conflicts), then drives each
+    head on/off toward its bounds. Short-cycle protected by per-head lockout
+    timers and a heat<->cool dwell. Master-off / backup-heat force both heads
+    off. Every Cielo call gated on a real desired-vs-current delta.
+  triggers:
+  - trigger: state
+    entity_id:
+    - sensor.office_baseboard_current_temperature
+    - sensor.studio_baseboard_current_temperature
+    - input_number.office_heat_bound
+    - input_number.office_cool_bound
+    - input_number.studio_heat_bound
+    - input_number.studio_cool_bound
+    - input_number.office_temp_differential
+    - input_number.studio_temp_differential
+    - input_boolean.hvac_enable
+    - input_boolean.backup_heat
+  - trigger: event
+    event_type: timer.finished
+    event_data:
+      entity_id: timer.mode_min_dwell
+  - trigger: event
+    event_type: timer.finished
+    event_data:
+      entity_id: timer.office_head_lockout
+  - trigger: event
+    event_type: timer.finished
+    event_data:
+      entity_id: timer.studio_head_lockout
+  - trigger: homeassistant
+    event: start
+  - trigger: time_pattern
+    minutes: /5
+  variables:
+    lead: 2
+    enabled: "{{ is_state('input_boolean.hvac_enable', 'on') }}"
+    backup: "{{ is_state('input_boolean.backup_heat', 'on') }}"
+    stored: "{{ states('input_select.system_hvac_mode') }}"
+    dwell_active: "{{ is_state('timer.mode_min_dwell', 'active') }}"
+    office_temp: "{{ states('sensor.office_baseboard_current_temperature') | float(0) }}"
+    studio_temp: "{{ states('sensor.studio_baseboard_current_temperature') | float(0) }}"
+    office_hb: "{{ states('input_number.office_heat_bound') | float(0) }}"
+    office_cb: "{{ states('input_number.office_cool_bound') | float(0) }}"
+    studio_hb: "{{ states('input_number.studio_heat_bound') | float(0) }}"
+    studio_cb: "{{ states('input_number.studio_cool_bound') | float(0) }}"
+    office_diff: "{{ states('input_number.office_temp_differential') | float(0) }}"
+    studio_diff: "{{ states('input_number.studio_temp_differential') | float(0) }}"
+    office_switch_on: "{{ is_state('switch.office_power', 'on') }}"
+    studio_switch_on: "{{ is_state('switch.studio_power', 'on') }}"
+    office_dir: "{{ stored if office_switch_on and stored in ['heat', 'cool'] else 'none' }}"
+    studio_dir: "{{ stored if studio_switch_on and stored in ['heat', 'cool'] else 'none' }}"
+    office_demand: >-
+      {% from 'hvac.jinja' import room_demand %}
+      {{- room_demand(office_temp, office_hb, office_cb, office_diff, office_dir) -}}
+    studio_demand: >-
+      {% from 'hvac.jinja' import room_demand %}
+      {{- room_demand(studio_temp, studio_hb, studio_cb, studio_diff, studio_dir) -}}
+    resolved: >-
+      {% from 'hvac.jinja' import resolve_mode %}
+      {{- resolve_mode(office_demand, studio_demand) -}}
+    effective: "{{ stored if (dwell_active and stored in ['heat', 'cool']) else resolved }}"
+    office_want_on: >-
+      {{ (effective == 'heat' and office_demand == 'heat')
+         or (effective == 'cool' and office_demand == 'cool') }}
+    studio_want_on: >-
+      {{ (effective == 'heat' and studio_demand == 'heat')
+         or (effective == 'cool' and studio_demand == 'cool') }}
+    desired_hvac: "{{ 'heat' if effective == 'heat' else 'cool' }}"
+    office_target_raw: >-
+      {% from 'hvac.jinja' import head_target %}
+      {{- head_target(effective, office_hb, office_cb, lead) -}}
+    studio_target_raw: >-
+      {% from 'hvac.jinja' import head_target %}
+      {{- head_target(effective, studio_hb, studio_cb, lead) -}}
+    office_target: "{{ office_target_raw | float(0) }}"
+    studio_target: "{{ studio_target_raw | float(0) }}"
+    office_lockout: "{{ is_state('timer.office_head_lockout', 'active') }}"
+    studio_lockout: "{{ is_state('timer.studio_head_lockout', 'active') }}"
+    current_office_hvac: "{{ states('climate.office') }}"
+    current_studio_hvac: "{{ states('climate.studio') }}"
+    current_office_target: "{{ state_attr('climate.office', 'temperature') | float(0) }}"
+    current_studio_target: "{{ state_attr('climate.studio', 'temperature') | float(0) }}"
+    safe_mode: "{{ 'off' if not enabled else 'idle' }}"
+  conditions:
+  - "{{ states('sensor.office_baseboard_current_temperature') not in ['unavailable', 'unknown'] }}"
+  - "{{ states('sensor.studio_baseboard_current_temperature') not in ['unavailable', 'unknown'] }}"
+  - "{{ states('switch.office_power') not in ['unavailable', 'unknown'] }}"
+  - "{{ states('switch.studio_power') not in ['unavailable', 'unknown'] }}"
+  - "{{ states('climate.office') not in ['unavailable', 'unknown'] }}"
+  - "{{ states('climate.studio') not in ['unavailable', 'unknown'] }}"
+  actions:
+  - if: "{{ not enabled or backup }}"
+    then:
+    - if: "{{ office_switch_on }}"
+      then:
+      - action: switch.turn_off
+        target:
+          entity_id: switch.office_power
+    - if: "{{ studio_switch_on }}"
+      then:
+      - action: switch.turn_off
+        target:
+          entity_id: switch.studio_power
+    - if: "{{ stored != safe_mode }}"
+      then:
+      - action: input_select.select_option
+        target:
+          entity_id: input_select.system_hvac_mode
+        data:
+          option: "{{ safe_mode }}"
+    - stop: master disabled or backup heat
+  - if: "{{ effective != stored }}"
+    then:
+    - action: input_select.select_option
+      target:
+        entity_id: input_select.system_hvac_mode
+      data:
+        option: "{{ effective }}"
+    - if: "{{ effective in ['heat', 'cool'] }}"
+      then:
+      - action: timer.start
+        target:
+          entity_id: timer.mode_min_dwell
+  - choose:
+    - conditions: "{{ office_want_on and not office_switch_on and not office_lockout }}"
+      sequence:
+      - action: switch.turn_on
+        target:
+          entity_id: switch.office_power
+      - action: climate.set_temperature
+        target:
+          entity_id: climate.office
+        data:
+          temperature: "{{ office_target }}"
+          hvac_mode: "{{ desired_hvac }}"
+      - action: timer.start
+        target:
+          entity_id: timer.office_head_lockout
+    - conditions: >-
+        {{ office_want_on and office_switch_on
+           and (current_office_hvac != desired_hvac
+                or current_office_target != office_target) }}
+      sequence:
+      - action: climate.set_temperature
+        target:
+          entity_id: climate.office
+        data:
+          temperature: "{{ office_target }}"
+          hvac_mode: "{{ desired_hvac }}"
+    - conditions: "{{ not office_want_on and office_switch_on and not office_lockout }}"
+      sequence:
+      - action: switch.turn_off
+        target:
+          entity_id: switch.office_power
+      - action: timer.start
+        target:
+          entity_id: timer.office_head_lockout
+  - choose:
+    - conditions: "{{ studio_want_on and not studio_switch_on and not studio_lockout }}"
+      sequence:
+      - action: switch.turn_on
+        target:
+          entity_id: switch.studio_power
+      - action: climate.set_temperature
+        target:
+          entity_id: climate.studio
+        data:
+          temperature: "{{ studio_target }}"
+          hvac_mode: "{{ desired_hvac }}"
+      - action: timer.start
+        target:
+          entity_id: timer.studio_head_lockout
+    - conditions: >-
+        {{ studio_want_on and studio_switch_on
+           and (current_studio_hvac != desired_hvac
+                or current_studio_target != studio_target) }}
+      sequence:
+      - action: climate.set_temperature
+        target:
+          entity_id: climate.studio
+        data:
+          temperature: "{{ studio_target }}"
+          hvac_mode: "{{ desired_hvac }}"
+    - conditions: "{{ not studio_want_on and studio_switch_on and not studio_lockout }}"
+      sequence:
+      - action: switch.turn_off
+        target:
+          entity_id: switch.studio_power
+      - action: timer.start
+        target:
+          entity_id: timer.studio_head_lockout
+  mode: single
 
 # ============================================================
 # Backup heat
