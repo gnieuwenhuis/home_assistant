@@ -53,7 +53,13 @@
   - trigger: time_pattern
     minutes: /5
   variables:
-    lead: 2
+    # Command each head to the bound itself (no lead past it). The head's own
+    # sensor is unreliable and state-dependent (off: reads refrigerant-pipe temp
+    # driven by the other head; running: converges to room temp). Steering past
+    # the bound made a running head drive the room well past it (the over-cool
+    # yo-yo). At the bound, a running head eases off near the bound on its own,
+    # and the baseboard backstop (prompt turn-off) catches the startup transient.
+    lead: 0
     enabled: "{{ is_state('input_boolean.hvac_enable', 'on') }}"
     backup: "{{ is_state('input_boolean.backup_heat', 'on') }}"
     stored: "{{ states('input_select.system_hvac_mode') }}"
@@ -176,7 +182,10 @@
         data:
           temperature: "{{ office_target }}"
           hvac_mode: "{{ desired_hvac }}"
-    - conditions: "{{ not office_want_on and office_switch_on and not office_lockout }}"
+    # Turn OFF as soon as demand ends — NOT gated on the lockout. The lockout is
+    # a minimum OFF-time (it gates the next turn-ON); blocking the off forces the
+    # head to over-cool/over-heat past the bound. Arm the lockout on the off.
+    - conditions: "{{ not office_want_on and office_switch_on }}"
       sequence:
       - action: switch.turn_off
         target:
@@ -210,7 +219,8 @@
         data:
           temperature: "{{ studio_target }}"
           hvac_mode: "{{ desired_hvac }}"
-    - conditions: "{{ not studio_want_on and studio_switch_on and not studio_lockout }}"
+    # Turn OFF as soon as demand ends — NOT gated on the lockout (see office).
+    - conditions: "{{ not studio_want_on and studio_switch_on }}"
       sequence:
       - action: switch.turn_off
         target:

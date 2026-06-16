@@ -109,15 +109,23 @@ band plus differential already make rapid flips unlikely.
 
 Given the resolved system mode, for each room:
 
-- **heat:** head on iff `should_heat`; head target = `clamp(heat_bound + lead)`.
-- **cool:** head on iff `should_cool`; head target = `clamp(cool_bound − lead)`.
+- **heat:** head on iff `should_heat`; head target = `clamp(heat_bound)`.
+- **cool:** head on iff `should_cool`; head target = `clamp(cool_bound)`.
 - **idle / master-off / backup-heat:** head off.
 
-`lead` (default 2 °C, a macro constant, clamped to `[17, 30]`) commits the
-inverter: the head's onboard sensor reads warm in heat / cool, so without a lead
-the pump quits early. The coordinator does the **real cutoff** against the
-reliable room sensor at the bound, so the lead never causes overshoot past the
-bound by more than the differential.
+The head is commanded to the bound itself (`lead = 0`, clamped to `[17, 30]`),
+**not past it**. The head's onboard sensor is unreliable and **state-dependent**:
+when the head is off it reads the refrigerant-pipe temperature driven by the
+*other* head on the shared compressor (cold when the other head cools, warm when
+it heats); when the head is running, its fan converges the sensor toward room
+temp. So we cannot compensate it with a fixed offset, and we must not steer past
+the bound — a running head (sensor ≈ room) would faithfully drive the room well
+past the bound, which was the over-cool yo-yo. Commanded to the bound, a running
+head eases off near the bound once its sensor converges, and the coordinator's
+prompt turn-off against the reliable baseboard sensor is the backstop for the
+startup transient. (Earlier revisions used a 2 °C lead past the bound to stop the
+head "quitting early"; that assumption was wrong for this state-dependent sensor
+and is removed.)
 
 A room that wants the *opposite* of the resolved mode (e.g. office wants cool
 while the system is heating for the studio) simply has its head **off** — it
@@ -131,21 +139,22 @@ consequence of "heating wins."
 2. **Per-bound differential** `input_number.<room>_temp_differential` — runs the
    head past the bound before cutting. Default **office 1.0 °C** (fast room),
    **studio 0.5 °C**.
-3. **Per-head lockout** `timer.<room>_head_lockout` — started on **every** head
-   toggle (on or off); the coordinator will not toggle that head again until it
-   expires. Hard-caps cycle frequency regardless of how fast the room moves and
-   protects the compressor from rapid restarts. Default **office 8 min**,
-   **studio 6 min** (durations set in the timer definitions). The **only**
-   override is a hard-safety force-**off** (master-off or backup-heat) — lockout
-   never blocks turning a head *off* for safety, and never permits an *on*. A
-   safety force-off still **arms** the lockout, so a quick re-enable or a
-   backup-heat flap around −12 °C can't restart the compressor immediately.
-4. **Inverter modulation** — commanding the head a target with a lead and
-   letting it run (instead of chattering the power switch) lets the compressor
-   ramp down on its own near setpoint.
+3. **Per-head lockout** `timer.<room>_head_lockout` — a minimum **off**-time:
+   armed on every head toggle (on or off); it gates the next turn-**on** until it
+   expires, protecting the compressor from rapid restarts. It **never** blocks a
+   turn-**off** — the coordinator turns a head off the instant demand ends, so the
+   head can never be forced to keep running past the bound (blocking the off was a
+   key driver of the over-cool yo-yo).
+   Default **office 8 min**, **studio 6 min** (durations set in the timer
+   definitions). A safety force-off (master-off or backup-heat) also arms the
+   lockout, so a quick re-enable or a backup-heat flap around −12 °C can't
+   restart the compressor immediately.
+4. **Inverter modulation** — commanding the bound (not past it) and letting the
+   head run (instead of chattering the power switch) lets the compressor ramp
+   down on its own near setpoint once the head's sensor converges to room temp.
 
-Trade-off (accepted): the lockout and the wider office differential let the room
-drift a little past a bound during a forced-off window. Both are tunable.
+Trade-off (accepted): the wider office differential and the minimum off-time let
+the room drift a little before the head can restart. Both are tunable.
 
 ## Architecture
 
@@ -187,8 +196,8 @@ discipline): both baseboard temp sensors, both `switch.<room>_power`, both
    - off→on: `switch.turn_on` + `climate.set_temperature` (hvac_mode + target)
    - on, drifted: `climate.set_temperature` (mode/target)
    - on→off: `switch.turn_off`
-   - each toggle starts `timer.<room>_head_lockout`; **skip any toggle whose
-     lockout is active** (except safety force-off in step 4).
+   - a turn-**on** is skipped while the head's lockout is active (min off-time);
+     a turn-**off** is never gated. Both on and off **arm** the lockout.
 6. Every call gated on a real desired-vs-current delta (switch on/off, climate
    hvac_mode, climate target) — the [[feedback_cielo_api_dedupe]] discipline.
 
@@ -205,7 +214,8 @@ avoids chaining boolean-rendered macro outputs:
   `cool` / `none` (`current` is the room's running direction, for hysteresis)
 - `resolve_mode(office_demand, studio_demand)` → `heat` / `cool` / `idle`
   (heating wins)
-- `head_target(mode, heat_bound, cool_bound, lead)` → clamped to `[17, 30]`
+- `head_target(mode, heat_bound, cool_bound, lead)` → clamped to `[17, 30]`;
+  the coordinator passes `lead = 0` (command the bound; see "Per-head application")
 
 ### Ecobee thermostat tile — template climate entities
 
@@ -344,5 +354,8 @@ pytest harness.
 - No seasonal lock and no outdoor-temperature guard (fully automatic, per the
   brainstorm).
 - No "away" preset with alternate bounds (master enable only).
-- `lead`, the differential floor, and lockout/dwell durations are simple
-  constants/helpers, not a tuning subsystem.
+- The differential and lockout/dwell durations are simple constants/helpers,
+  not a tuning subsystem. (`lead` is fixed at 0 — see "Per-head application".)
+- No per-head sensor-bias compensation: the head sensor is state-dependent
+  (off-state reads pipe temp from the other head), so a fixed offset can't
+  correct it. Control stays on the reliable baseboard sensor.
