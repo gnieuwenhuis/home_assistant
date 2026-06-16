@@ -192,3 +192,40 @@ async def test_drift_resends_target_without_toggle(coordinator):
     await run(hass)
     assert not turned_on(calls, "switch.studio_power")
     assert any(c.data.get("temperature") == 22 for c in calls["temp"])
+
+
+async def test_hot_rooms_cool_with_cool_target(coordinator):
+    hass, calls = coordinator
+    # Both rooms above their cool bound, neither wants heat → resolved cool.
+    await arrange(hass, office_temp=26, studio_temp=25)
+    await run(hass)
+    assert hass.states.get("input_select.system_hvac_mode").state == "cool"
+    assert turned_on(calls, "switch.office_power")
+    assert turned_on(calls, "switch.studio_power")
+    office_cool = [c for c in calls["temp"]
+                   if "climate.office" in _entities(c) and c.data.get("hvac_mode") == "cool"]
+    studio_cool = [c for c in calls["temp"]
+                   if "climate.studio" in _entities(c) and c.data.get("hvac_mode") == "cool"]
+    assert office_cool and office_cool[0].data["temperature"] == 22  # cool_bound 24 - lead 2
+    assert studio_cool and studio_cool[0].data["temperature"] == 21  # cool_bound 23 - lead 2
+
+
+async def test_demand_drop_turns_head_off(coordinator):
+    hass, calls = coordinator
+    # Studio was heating; now back in band → head turns off and the system idles.
+    await arrange(hass, office_temp=22, studio_temp=22, stored="heat",
+                  studio_switch="on", studio_climate="heat")
+    await run(hass)
+    assert turned_off(calls, "switch.studio_power")
+    assert hass.states.get("input_select.system_hvac_mode").state == "idle"
+
+
+async def test_safety_off_overrides_lockout(coordinator):
+    hass, calls = coordinator
+    # Master disabled forces heads off even while their lockouts are active.
+    await arrange(hass, office_temp=18, studio_temp=18, enabled=False,
+                  office_switch="on", studio_switch="on",
+                  office_lockout=True, studio_lockout=True)
+    await run(hass)
+    assert turned_off(calls, "switch.office_power")
+    assert turned_off(calls, "switch.studio_power")
