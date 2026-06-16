@@ -246,12 +246,16 @@
     target:
       entity_id: climate.neviweb130_climate_th1123wf
     data:
-      temperature: "{{ states('input_number.office_preferred_temperature') | float }}"
+      temperature: >-
+        {{ ((states('input_number.office_heat_bound') | float
+             + states('input_number.office_cool_bound') | float) / 2) | round(0) }}
   - action: climate.set_temperature
     target:
       entity_id: climate.neviweb130_climate_th1124wf
     data:
-      temperature: "{{ states('input_number.studio_preferred_temperature') | float }}"
+      temperature: >-
+        {{ ((states('input_number.studio_heat_bound') | float
+             + states('input_number.studio_cool_bound') | float) / 2) | round(0) }}
   - action: notify.notification_group
     data:
       message: Heat Pump Heating is Disabled, Baseboard Heat is Being Used
@@ -281,12 +285,12 @@
     target:
       entity_id: climate.neviweb130_climate_th1123wf
     data:
-      temperature: "{{ states('input_number.office_preferred_temperature') | float - 2.5 }}"
+      temperature: "{{ states('input_number.office_heat_bound') | float - 2.5 }}"
   - action: climate.set_temperature
     target:
       entity_id: climate.neviweb130_climate_th1124wf
     data:
-      temperature: "{{ states('input_number.studio_preferred_temperature') | float - 2.5 }}"
+      temperature: "{{ states('input_number.studio_heat_bound') | float - 2.5 }}"
   - action: notify.notification_group
     data:
       message: Heat Pump is Enabled
