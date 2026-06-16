@@ -36,10 +36,18 @@ async def test_cool_hysteresis_keeps_cooling_past_bound(hass_repo):
     assert call(hass_repo, "{{ room_demand(23.7, 20, 24, 0.5, 'cool') }}") == "cool"
 
 
+async def test_cool_hysteresis_does_not_start_inside_differential(hass_repo):
+    # Not currently cooling, 0.3 below the cool bound → no demand.
+    assert call(hass_repo, "{{ room_demand(23.7, 20, 24, 0.5, 'none') }}") == "none"
+
+
 # --- resolve_mode: heating wins ---------------------------------------------
 
-async def test_resolve_heating_wins_conflict(hass_repo):
+async def test_resolve_heating_wins_when_office_cools_studio_heats(hass_repo):
     assert call(hass_repo, "{{ resolve_mode('cool', 'heat') }}") == "heat"
+
+
+async def test_resolve_heating_wins_when_office_heats_studio_cools(hass_repo):
     assert call(hass_repo, "{{ resolve_mode('heat', 'cool') }}") == "heat"
 
 
@@ -67,3 +75,8 @@ async def test_head_target_clamps_high(hass_repo):
 
 async def test_head_target_clamps_low(hass_repo):
     assert call(hass_repo, "{{ head_target('cool', 16, 17, 2) }}") == 17
+
+
+async def test_head_target_empty_for_idle(hass_repo):
+    # resolve_mode yields 'idle'; head_target has no active bound then.
+    assert call(hass_repo, "{{ head_target('idle', 20, 24, 2) }}") == ""
