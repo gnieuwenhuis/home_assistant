@@ -106,6 +106,55 @@ input_number:
     unit_of_measurement: "°C·day"
     icon: mdi:calendar-expand-horizontal
 
+  office_heat_bound:
+    name: Office Heat Bound
+    min: 15
+    max: 30
+    step: 0.5
+    mode: slider
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer-chevron-down
+  office_cool_bound:
+    name: Office Cool Bound
+    min: 15
+    max: 30
+    step: 0.5
+    mode: slider
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer-chevron-up
+  studio_heat_bound:
+    name: Studio Heat Bound
+    min: 15
+    max: 30
+    step: 0.5
+    mode: slider
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer-chevron-down
+  studio_cool_bound:
+    name: Studio Cool Bound
+    min: 15
+    max: 30
+    step: 0.5
+    mode: slider
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer-chevron-up
+  office_temp_differential:
+    name: Office Temp Differential
+    min: 0
+    max: 3
+    step: 0.1
+    mode: box
+    unit_of_measurement: "°C"
+    icon: mdi:arrow-expand-vertical
+  studio_temp_differential:
+    name: Studio Temp Differential
+    min: 0
+    max: 3
+    step: 0.1
+    mode: box
+    unit_of_measurement: "°C"
+    icon: mdi:arrow-expand-vertical
+
 input_boolean:
   backup_heat:
     name: Backup Heat Mode
@@ -116,6 +165,9 @@ input_boolean:
   humidifier_intended:
     name: Humidifier Intended
     icon: mdi:air-humidifier
+  hvac_enable:
+    name: HVAC Enable
+    icon: mdi:hvac
 
 input_select:
   heat_pump_mode:
@@ -124,6 +176,14 @@ input_select:
     options:
       - heating
       - cooling
+      - "off"
+  system_hvac_mode:
+    name: System HVAC Mode
+    icon: mdi:heat-pump
+    options:
+      - idle
+      - heat
+      - cool
       - "off"
 
 timer:
@@ -145,4 +205,16 @@ timer:
   # restart cannot erase a hold and re-open the nag window.
   changeover_hold:
     name: Changeover Hold
+    restore: true
+  mode_min_dwell:
+    name: Mode Min Dwell
+    duration: "00:15:00"
+    restore: true
+  office_head_lockout:
+    name: Office Head Lockout
+    duration: "00:08:00"
+    restore: true
+  studio_head_lockout:
+    name: Studio Head Lockout
+    duration: "00:06:00"
     restore: true
