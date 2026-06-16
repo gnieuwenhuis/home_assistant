@@ -55,17 +55,6 @@ template:
         state_class: measurement
         state: >-
           {{ state_attr("climate.neviweb130_climate_th1123wf","current_temperature") }}
-      - name: "Office Heat Pump Setpoint Temperature"
-        unique_id: sensor.office_heat_pump_setpoint_temperature
-        unit_of_measurement: "°C"
-        device_class: temperature
-        state_class: measurement
-        state: >-
-          {% from 'setpoint.jinja' import heat_pump_setpoint %}
-          {{ heat_pump_setpoint(
-              'climate.neviweb130_climate_th1123wf',
-              'sensor.office_temperature',
-              'input_number.office_preferred_temperature') }}
       - name: "Studio baseboard Current Temperature"
         unique_id: sensor.studio_baseboard_current_temperature
         unit_of_measurement: "°C"
@@ -73,17 +62,6 @@ template:
         state_class: measurement
         state: >-
           {{ state_attr("climate.neviweb130_climate_th1124wf","current_temperature") }}
-      - name: "Studio Heat Pump Setpoint Temperature"
-        unique_id: sensor.studio_heat_pump_setpoint_temperature
-        unit_of_measurement: "°C"
-        device_class: temperature
-        state_class: measurement
-        state: >-
-          {% from 'setpoint.jinja' import heat_pump_setpoint %}
-          {{ heat_pump_setpoint(
-              'climate.neviweb130_climate_th1124wf',
-              'sensor.studio_temperature',
-              'input_number.studio_preferred_temperature') }}
       - name: "Humidity High Threshold"
         unique_id: sensor.humidity_high_threshold
         unit_of_measurement: "%"

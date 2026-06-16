@@ -7,7 +7,7 @@ async def test_template_engine_renders(hass_repo):
 
 
 async def test_repo_custom_templates_importable(hass_repo):
-    out = render(hass_repo, "{% from 'setpoint.jinja' import heat_pump_setpoint %}ok")
+    out = render(hass_repo, "{% from 'hvac.jinja' import room_demand %}ok")
     assert out == "ok"
 
 
