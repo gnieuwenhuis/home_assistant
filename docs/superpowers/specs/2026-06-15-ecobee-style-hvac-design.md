@@ -173,7 +173,8 @@ discipline): both baseboard temp sensors, both `switch.<room>_power`, both
 1. Read stored mode from `input_select.system_hvac_mode`; derive
    `currently_heating_<room>` / `currently_cooling_<room>` from
    `switch.<room>_power` + stored mode.
-2. Compute `should_heat` / `should_cool` per room via the macros.
+2. Compute each room's demand (`heat` / `cool` / `none`) via the `room_demand`
+   macro, passing the room's current running direction for hysteresis.
 3. Resolve desired mode; apply anti-flap (if the dwell is active, pin to the
    dwelling active mode and forbid the opposite mode — do not relabel to idle).
 4. If `hvac_enable` is off **or** `backup_heat` is on → force both heads off,
@@ -193,11 +194,15 @@ discipline): both baseboard temp sensors, both `switch.<room>_power`, both
 
 ### Decision macros — `custom_templates/hvac.jinja`
 
-Pure, unit-testable macros (same pattern the deleted `changeover.jinja` used):
+Pure, unit-testable macros (same pattern the deleted `changeover.jinja` used).
+The per-room `should_heat` / `should_cool` concepts above are folded into one
+macro returning a single direction string (`heat` / `cool` / `none`), which
+avoids chaining boolean-rendered macro outputs:
 
-- `should_heat(t, heat_bound, differential, currently_heating)`
-- `should_cool(t, cool_bound, differential, currently_cooling)`
-- `resolve_mode(off_should_heat, st_should_heat, off_should_cool, st_should_cool)`
+- `room_demand(temp, heat_bound, cool_bound, differential, current)` → `heat` /
+  `cool` / `none` (`current` is the room's running direction, for hysteresis)
+- `resolve_mode(office_demand, studio_demand)` → `heat` / `cool` / `idle`
+  (heating wins)
 - `head_target(mode, heat_bound, cool_bound, lead)` → clamped to `[17, 30]`
 
 ### Ecobee thermostat tile — template climate entities

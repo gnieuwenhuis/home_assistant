@@ -148,4 +148,4 @@ for the eventual migration" status as the other helpers.
 
 - Per-room entity names follow `<sensor|input_number|...>.<room>_<thing>`: `sensor.<room>_baseboard_current_temperature`, `input_number.<room>_heat_bound`, `input_number.<room>_cool_bound`, `input_number.<room>_temp_differential`. Stay on this pattern when adding entities.
 - The thematic banner comments in `automations.yaml` (`# HVAC controllers`, `# Backup heat`, `# Humidity`) are the file's structure — keep them and group new automations under the right one.
-- Automations created in the HA UI get a numeric id (`'1765126659858'`); hand-written ones get descriptive ids (`office_hvac_controller`). Both are valid — match whichever style the section already uses.
+- Automations created in the HA UI get a numeric id (`'1765126659858'`); hand-written ones get descriptive ids (`hvac_coordinator`). Both are valid — match whichever style the section already uses.
