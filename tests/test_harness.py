@@ -12,5 +12,5 @@ async def test_repo_custom_templates_importable(hass_repo):
 
 
 async def test_helpers_yaml_loads(hass_helpers):
-    assert hass_helpers.states.get("input_select.heat_pump_mode") is not None
+    assert hass_helpers.states.get("input_select.system_hvac_mode") is not None
     assert hass_helpers.states.get("timer.humidity_cooldown") is not None
