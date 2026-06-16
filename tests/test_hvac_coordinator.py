@@ -229,3 +229,14 @@ async def test_safety_off_overrides_lockout(coordinator):
     await run(hass)
     assert turned_off(calls, "switch.office_power")
     assert turned_off(calls, "switch.studio_power")
+
+
+async def test_safety_off_arms_lockout(coordinator):
+    hass, calls = coordinator
+    # A forced-off head arms its lockout so a quick re-enable / backup-heat
+    # flap cannot restart the compressor immediately.
+    await arrange(hass, office_temp=18, studio_temp=18, enabled=False,
+                  office_switch="on", studio_switch="on")
+    await run(hass)
+    assert hass.states.get("timer.office_head_lockout").state == "active"
+    assert hass.states.get("timer.studio_head_lockout").state == "active"

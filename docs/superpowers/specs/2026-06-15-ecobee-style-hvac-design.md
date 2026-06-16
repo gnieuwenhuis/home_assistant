@@ -137,7 +137,9 @@ consequence of "heating wins."
    protects the compressor from rapid restarts. Default **office 8 min**,
    **studio 6 min** (durations set in the timer definitions). The **only**
    override is a hard-safety force-**off** (master-off or backup-heat) — lockout
-   never blocks turning a head *off* for safety, and never permits an *on*.
+   never blocks turning a head *off* for safety, and never permits an *on*. A
+   safety force-off still **arms** the lockout, so a quick re-enable or a
+   backup-heat flap around −12 °C can't restart the compressor immediately.
 4. **Inverter modulation** — commanding the head a target with a lead and
    letting it run (instead of chattering the power switch) lets the compressor
    ramp down on its own near setpoint.
@@ -177,8 +179,8 @@ discipline): both baseboard temp sensors, both `switch.<room>_power`, both
    macro, passing the room's current running direction for hysteresis.
 3. Resolve desired mode; apply anti-flap (if the dwell is active, pin to the
    dwelling active mode and forbid the opposite mode — do not relabel to idle).
-4. If `hvac_enable` is off **or** `backup_heat` is on → force both heads off,
-   set stored mode `off`/`idle`, done.
+4. If `hvac_enable` is off **or** `backup_heat` is on → force both heads off
+   (arming each forced-off head's lockout), set stored mode `off`/`idle`, done.
 5. Otherwise write the resolved mode to `input_select.system_hvac_mode` (start
    `timer.mode_min_dwell` when it becomes an active mode that changed), and for
    each room issue the minimum Cielo calls to reach the desired head state:

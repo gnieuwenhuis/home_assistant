@@ -112,16 +112,24 @@
   actions:
   - if: "{{ not enabled or backup }}"
     then:
+    # Force-off ignores an active lockout, but still ARMS the lockout so a quick
+    # re-enable / backup-heat flap can't restart the compressor immediately.
     - if: "{{ office_switch_on }}"
       then:
       - action: switch.turn_off
         target:
           entity_id: switch.office_power
+      - action: timer.start
+        target:
+          entity_id: timer.office_head_lockout
     - if: "{{ studio_switch_on }}"
       then:
       - action: switch.turn_off
         target:
           entity_id: switch.studio_power
+      - action: timer.start
+        target:
+          entity_id: timer.studio_head_lockout
     - if: "{{ stored != safe_mode }}"
       then:
       - action: input_select.select_option
