@@ -55,17 +55,6 @@ template:
         state_class: measurement
         state: >-
           {{ state_attr("climate.neviweb130_climate_th1123wf","current_temperature") }}
-      - name: "Office Heat Pump Setpoint Temperature"
-        unique_id: sensor.office_heat_pump_setpoint_temperature
-        unit_of_measurement: "°C"
-        device_class: temperature
-        state_class: measurement
-        state: >-
-          {% from 'setpoint.jinja' import heat_pump_setpoint %}
-          {{ heat_pump_setpoint(
-              'climate.neviweb130_climate_th1123wf',
-              'sensor.office_temperature',
-              'input_number.office_preferred_temperature') }}
       - name: "Studio baseboard Current Temperature"
         unique_id: sensor.studio_baseboard_current_temperature
         unit_of_measurement: "°C"
@@ -73,17 +62,6 @@ template:
         state_class: measurement
         state: >-
           {{ state_attr("climate.neviweb130_climate_th1124wf","current_temperature") }}
-      - name: "Studio Heat Pump Setpoint Temperature"
-        unique_id: sensor.studio_heat_pump_setpoint_temperature
-        unit_of_measurement: "°C"
-        device_class: temperature
-        state_class: measurement
-        state: >-
-          {% from 'setpoint.jinja' import heat_pump_setpoint %}
-          {{ heat_pump_setpoint(
-              'climate.neviweb130_climate_th1124wf',
-              'sensor.studio_temperature',
-              'input_number.studio_preferred_temperature') }}
       - name: "Humidity High Threshold"
         unique_id: sensor.humidity_high_threshold
         unit_of_measurement: "%"
@@ -100,80 +78,6 @@ template:
         state: >-
           {{ states('input_number.humidity_set_point') | float
              - states('input_number.humidity_tolerance') | float }}
-  # Changeover advisor: degree-hour balance over the next 24 h of EC hourly
-  # forecast, plus a 2-day daily regime exposed as daily_cdh/daily_hdh
-  # attributes (from a second weather.get_forecasts type: daily call).
-  # Refreshes hourly and on HA start; goes unavailable when EITHER forecast is
-  # missing (continue_on_error leaves changeover_forecast / changeover_daily_forecast
-  # undefined → availability false), which short-circuits the advisor.
-  # Design: docs/superpowers/specs/2026-06-07-changeover-advisor-design.md
-  # State is routinely negative (CDH − HDH): negative = net heating load. Not a sign error.
-  - triggers:
-      - trigger: time_pattern
-        minutes: "0"
-      - trigger: homeassistant
-        event: start
-    actions:
-      - action: weather.get_forecasts
-        data:
-          type: hourly
-        target:
-          entity_id: weather.lethbridge_forecast
-        response_variable: changeover_forecast
-        continue_on_error: true
-      - action: weather.get_forecasts
-        data:
-          type: daily
-        target:
-          entity_id: weather.lethbridge_forecast
-        response_variable: changeover_daily_forecast
-        continue_on_error: true
-    sensor:
-      - name: "Changeover Balance"
-        unique_id: sensor.changeover_balance
-        unit_of_measurement: "°C·h"
-        state_class: measurement
-        availability: >-
-          {{ changeover_forecast is defined
-             and (changeover_forecast['weather.lethbridge_forecast']['forecast'] | count) > 0
-             and changeover_daily_forecast is defined
-             and (changeover_daily_forecast['weather.lethbridge_forecast']['forecast'] | count) >= 2 }}
-        state: >-
-          {% from 'changeover.jinja' import heating_degree_hours, cooling_degree_hours %}
-          {% set temps = changeover_forecast['weather.lethbridge_forecast']['forecast'][:48]
-                         | map(attribute='temperature') | list %}
-          {% set bp = states('input_number.changeover_balance_point') | float(16) %}
-          {{ (cooling_degree_hours(temps, bp) | float)
-             - (heating_degree_hours(temps, bp) | float) }}
-        attributes:
-          cdh: >-
-            {% from 'changeover.jinja' import cooling_degree_hours %}
-            {% set temps = changeover_forecast['weather.lethbridge_forecast']['forecast'][:48]
-                           | map(attribute='temperature') | list %}
-            {{ cooling_degree_hours(temps,
-                 states('input_number.changeover_balance_point') | float(16)) | float }}
-          hdh: >-
-            {% from 'changeover.jinja' import heating_degree_hours %}
-            {% set temps = changeover_forecast['weather.lethbridge_forecast']['forecast'][:48]
-                           | map(attribute='temperature') | list %}
-            {{ heating_degree_hours(temps,
-                 states('input_number.changeover_balance_point') | float(16)) | float }}
-          forecast_hours: >-
-            {{ changeover_forecast['weather.lethbridge_forecast']['forecast'][:48] | count }}
-          daily_cdh: >-
-            {% from 'changeover.jinja' import daily_means, cooling_degree_hours %}
-            {% set means = daily_means(
-                 changeover_daily_forecast['weather.lethbridge_forecast']['forecast'][:2]) | from_json %}
-            {{ cooling_degree_hours(means,
-                 states('input_number.changeover_balance_point') | float(16)) | float }}
-          daily_hdh: >-
-            {% from 'changeover.jinja' import daily_means, heating_degree_hours %}
-            {% set means = daily_means(
-                 changeover_daily_forecast['weather.lethbridge_forecast']['forecast'][:2]) | from_json %}
-            {{ heating_degree_hours(means,
-                 states('input_number.changeover_balance_point') | float(16)) | float }}
-          daily_forecast_days: >-
-            {{ changeover_daily_forecast['weather.lethbridge_forecast']['forecast'][:2] | count }}
 
 notify:
   - platform: group
@@ -181,43 +85,75 @@ notify:
     services:
       - action: mobile_app_pixel_8
 
-# Changeover advisor evidence sensors. Duty cycles are the load witness
-# (history_stats ratio, PERCENT 0-100); the smoothed means ride out sensor
-# noise and head overshoot — the office gets the longer window because its
-# oversized head overshoots harder.
-# sampling_size 60 ≈ 2x the ~28 samples a 2 h window sees at the ~250 s neviweb scan_interval.
-sensor:
-  - platform: statistics
-    name: "Office Temperature 2h Mean"
-    unique_id: office_temperature_2h_mean
-    entity_id: sensor.office_baseboard_current_temperature
-    state_characteristic: mean
-    sampling_size: 60
-    max_age:
-      hours: 2
-  - platform: statistics
-    name: "Studio Temperature 1h Mean"
-    unique_id: studio_temperature_1h_mean
-    entity_id: sensor.studio_baseboard_current_temperature
-    state_characteristic: mean
-    sampling_size: 60
-    max_age:
-      hours: 1
-  - platform: history_stats
-    name: "Office Heat Pump Duty 24h"
-    unique_id: office_heat_pump_duty_24h
-    entity_id: switch.office_power
-    state: "on"
-    type: ratio
-    end: "{{ now() }}"
-    duration:
-      hours: 24
-  - platform: history_stats
-    name: "Studio Heat Pump Duty 24h"
-    unique_id: studio_heat_pump_duty_24h
-    entity_id: switch.studio_power
-    state: "on"
-    type: ratio
-    end: "{{ now() }}"
-    duration:
-      hours: 24
+# Display/entry facade for ecobee-style dual-setpoint thermostat cards.
+# Requires the HACS "Climate Template" integration (platform: climate_template).
+# These entities issue NO direct device calls — all real control lives in the
+# hvac_coordinator automation. Confirm exact field names against the installed
+# integration's README before deploying.
+climate:
+  - platform: climate_template
+    name: Office Thermostat
+    unique_id: office_thermostat
+    modes:
+      - "off"
+      - "heat_cool"
+    min_temp: 15
+    max_temp: 30
+    temp_step: 0.5
+    current_temperature_template: "{{ states('sensor.office_baseboard_current_temperature') }}"
+    target_temperature_low_template: "{{ states('input_number.office_heat_bound') }}"
+    target_temperature_high_template: "{{ states('input_number.office_cool_bound') }}"
+    hvac_mode_template: "{{ 'heat_cool' if is_state('input_boolean.hvac_enable', 'on') else 'off' }}"
+    hvac_action_template: >-
+      {% if not is_state('input_boolean.hvac_enable', 'on') %}off
+      {%- elif is_state('switch.office_power', 'on') and is_state('input_select.system_hvac_mode', 'heat') %}heating
+      {%- elif is_state('switch.office_power', 'on') and is_state('input_select.system_hvac_mode', 'cool') %}cooling
+      {%- else %}idle{% endif %}
+    set_temperature:
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.office_heat_bound
+        data:
+          value: "{{ target_temp_low }}"
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.office_cool_bound
+        data:
+          value: "{{ target_temp_high }}"
+    set_hvac_mode:
+      - action: "input_boolean.turn_{{ 'on' if hvac_mode == 'heat_cool' else 'off' }}"
+        target:
+          entity_id: input_boolean.hvac_enable
+  - platform: climate_template
+    name: Studio Thermostat
+    unique_id: studio_thermostat
+    modes:
+      - "off"
+      - "heat_cool"
+    min_temp: 15
+    max_temp: 30
+    temp_step: 0.5
+    current_temperature_template: "{{ states('sensor.studio_baseboard_current_temperature') }}"
+    target_temperature_low_template: "{{ states('input_number.studio_heat_bound') }}"
+    target_temperature_high_template: "{{ states('input_number.studio_cool_bound') }}"
+    hvac_mode_template: "{{ 'heat_cool' if is_state('input_boolean.hvac_enable', 'on') else 'off' }}"
+    hvac_action_template: >-
+      {% if not is_state('input_boolean.hvac_enable', 'on') %}off
+      {%- elif is_state('switch.studio_power', 'on') and is_state('input_select.system_hvac_mode', 'heat') %}heating
+      {%- elif is_state('switch.studio_power', 'on') and is_state('input_select.system_hvac_mode', 'cool') %}cooling
+      {%- else %}idle{% endif %}
+    set_temperature:
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.studio_heat_bound
+        data:
+          value: "{{ target_temp_low }}"
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.studio_cool_bound
+        data:
+          value: "{{ target_temp_high }}"
+    set_hvac_mode:
+      - action: "input_boolean.turn_{{ 'on' if hvac_mode == 'heat_cool' else 'off' }}"
+        target:
+          entity_id: input_boolean.hvac_enable

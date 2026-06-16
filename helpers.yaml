@@ -20,42 +20,6 @@
 # entity_id, so it's `backup_heat` directly — the rename collapses away.
 
 input_number:
-  office_preferred_temperature:
-    name: Office Preferred Temperature
-    min: 10
-    max: 30
-    step: 1
-    mode: slider
-    unit_of_measurement: "Degrees Celsius"
-    icon: mdi:temperature-celsius
-
-  studio_preferred_temperature:
-    name: Studio Preferred Temperature
-    min: 10
-    max: 30
-    step: 1
-    mode: slider
-    unit_of_measurement: "Degrees Celsius"
-    icon: mdi:temperature-celsius
-
-  office_temp_range:
-    name: office_temp_range
-    min: 0
-    max: 10
-    step: 1
-    mode: box
-    unit_of_measurement: "Celsius"
-    icon: mdi:temperature-celsius
-
-  studio_temp_range:
-    name: studio_temp_range
-    min: 0.5
-    max: 20
-    step: 1
-    mode: slider
-    unit_of_measurement: "Degrees Celsius"
-    icon: mdi:temperature-celsius
-
   humidity_set_point:
     name: Humidity Set Point
     min: 0
@@ -74,37 +38,54 @@ input_number:
     unit_of_measurement: "%"
     icon: mdi:water-percent
 
-  # Changeover advisor tunables (no `initial:` — values restore across
-  # restarts; defaults 16 °C / 12 °C·h (24 h window) are set when created in the UI).
-  changeover_balance_point:
-    name: Changeover Balance Point
-    min: 10
-    max: 22
+  office_heat_bound:
+    name: Office Heat Bound
+    min: 15
+    max: 30
     step: 0.5
+    mode: slider
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer-chevron-down
+  office_cool_bound:
+    name: Office Cool Bound
+    min: 15
+    max: 30
+    step: 0.5
+    mode: slider
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer-chevron-up
+  studio_heat_bound:
+    name: Studio Heat Bound
+    min: 15
+    max: 30
+    step: 0.5
+    mode: slider
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer-chevron-down
+  studio_cool_bound:
+    name: Studio Cool Bound
+    min: 15
+    max: 30
+    step: 0.5
+    mode: slider
+    unit_of_measurement: "°C"
+    icon: mdi:thermometer-chevron-up
+  office_temp_differential:
+    name: Office Temp Differential
+    min: 0
+    max: 3
+    step: 0.1
     mode: box
     unit_of_measurement: "°C"
-    icon: mdi:swap-vertical-circle-outline
-
-  changeover_deadband:
-    name: Changeover Deadband
-    min: 0
-    max: 200
-    step: 1
-    mode: box
-    unit_of_measurement: "°C·h"
     icon: mdi:arrow-expand-vertical
-
-  # Daily (multi-day persistence) dead band, in °C·day. Default 1.0 =
-  # 0.5 °C/day past balance over the 2-day daily regime — the daily mirror of
-  # the hourly 0.5 °C/h sensitivity. Set value 1.0 when created in the UI.
-  changeover_daily_deadband:
-    name: Changeover Daily Deadband
+  studio_temp_differential:
+    name: Studio Temp Differential
     min: 0
-    max: 10
-    step: 0.5
+    max: 3
+    step: 0.1
     mode: box
-    unit_of_measurement: "°C·day"
-    icon: mdi:calendar-expand-horizontal
+    unit_of_measurement: "°C"
+    icon: mdi:arrow-expand-vertical
 
 input_boolean:
   backup_heat:
@@ -116,14 +97,18 @@ input_boolean:
   humidifier_intended:
     name: Humidifier Intended
     icon: mdi:air-humidifier
+  hvac_enable:
+    name: HVAC Enable
+    icon: mdi:hvac
 
 input_select:
-  heat_pump_mode:
-    name: Heat Pump Mode
+  system_hvac_mode:
+    name: System HVAC Mode
     icon: mdi:heat-pump
     options:
-      - heating
-      - cooling
+      - idle
+      - heat
+      - cool
       - "off"
 
 timer:
@@ -140,9 +125,15 @@ timer:
     duration: "00:15:00"
     restore: true
 
-  # Changeover advisor hold: started 12 h on every suggestion (nag floor),
-  # 24 h on every mode change (min time-in-mode). restore: true so an HA
-  # restart cannot erase a hold and re-open the nag window.
-  changeover_hold:
-    name: Changeover Hold
+  mode_min_dwell:
+    name: Mode Min Dwell
+    duration: "00:15:00"
+    restore: true
+  office_head_lockout:
+    name: Office Head Lockout
+    duration: "00:08:00"
+    restore: true
+  studio_head_lockout:
+    name: Studio Head Lockout
+    duration: "00:06:00"
     restore: true

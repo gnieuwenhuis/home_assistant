@@ -1,139 +1,191 @@
 # ============================================================
 # HVAC controllers
 # ------------------------------------------------------------
-# Each room has one event-driven controller. It fires when the
-# computed setpoint, mode, preferred temperature, or swing
-# changes, plus a 5-minute safety heartbeat. It turns the
-# room's heat pump on/off and keeps its hvac_mode and target
-# temperature aligned with the room's current need:
-#
-#   indoor < preferred − swing   → heating mode pumps on,
-#                                  cooling mode pumps off
-#   indoor > preferred + swing   → cooling mode pumps on,
-#                                  heating mode pumps off
-#   inside the dead band         → no action
-#
-# `swing` is read from input_number.<room>_temp_range, so a
-# single helper controls how aggressively the room cycles in
-# both heating and cooling. The mode-change trigger (2-min
-# debounce) subsumes the old mode-switch automations; the
-# "already on, drifted" branch subsumes setpoint-sync.
+# One coordinator drives the multi-split (shared compressor →
+# one system-wide heat/cool mode). It reads both rooms' two-
+# setpoint demand (heat below heat_bound, cool above cool_bound,
+# with a hysteresis differential past each bound), resolves a
+# single system-wide mode where heating wins any conflict, then
+# drives each head's power switch + climate target toward its
+# bound (a small lead past the bound keeps the inverter
+# committed). Short-cycle protection comes from per-head lockout
+# timers and a heat<->cool minimum dwell that pins the active
+# mode. Master-off (input_boolean.hvac_enable off) and backup-
+# heat force both heads off. Every Cielo call is gated on a real
+# desired-vs-current delta so no redundant API writes are made.
 # ============================================================
 
-- id: office_hvac_controller
-  alias: Office HVAC Controller
+- id: hvac_coordinator
+  alias: HVAC Coordinator
   description: >-
-    Drive the office heat pump (switch + climate) toward preferred ± swing.
-    Fires only when setpoint, mode, preferred, or swing change, plus a 5-min
-    safety heartbeat. Every Cielo API call is gated on a desired-vs-current
-    delta.
+    One coordinator for the multi-split. Resolves a single system-wide mode from
+    both rooms' two-setpoint demand (heating wins conflicts), then drives each
+    head on/off toward its bounds. Short-cycle protected by per-head lockout
+    timers and a heat<->cool dwell. Master-off / backup-heat force both heads
+    off. Every Cielo call gated on a real desired-vs-current delta.
   triggers:
   - trigger: state
     entity_id:
-    - sensor.office_heat_pump_setpoint_temperature
-    - input_number.office_preferred_temperature
-    - input_number.office_temp_range
-  - trigger: state
-    entity_id: input_select.heat_pump_mode
-    for:
-      minutes: 2
+    - sensor.office_baseboard_current_temperature
+    - sensor.studio_baseboard_current_temperature
+    - input_number.office_heat_bound
+    - input_number.office_cool_bound
+    - input_number.studio_heat_bound
+    - input_number.studio_cool_bound
+    - input_number.office_temp_differential
+    - input_number.studio_temp_differential
+    - input_boolean.hvac_enable
+    - input_boolean.backup_heat
+  - trigger: event
+    event_type: timer.finished
+    event_data:
+      entity_id: timer.mode_min_dwell
+  - trigger: event
+    event_type: timer.finished
+    event_data:
+      entity_id: timer.office_head_lockout
+  - trigger: event
+    event_type: timer.finished
+    event_data:
+      entity_id: timer.studio_head_lockout
+  - trigger: homeassistant
+    event: start
   - trigger: time_pattern
     minutes: /5
   variables:
-    current_temp:   "{{ states('sensor.office_baseboard_current_temperature') | float(0) }}"
-    preferred:      "{{ states('input_number.office_preferred_temperature')   | float(0) }}"
-    swing:          "{{ states('input_number.office_temp_range')              | float(0) }}"
-    mode:           "{{ states('input_select.heat_pump_mode') }}"
-    setpoint:       "{{ states('sensor.office_heat_pump_setpoint_temperature') | float(0) }}"
-    too_cold:       "{{ current_temp < (preferred - swing) }}"
-    too_hot:        "{{ current_temp > (preferred + swing) }}"
-    desired_on:     "{{ (mode == 'heating' and too_cold) or (mode == 'cooling' and too_hot) }}"
-    desired_off:    "{{ (mode == 'heating' and too_hot)  or (mode == 'cooling' and too_cold) }}"
-    desired_hvac:   "{{ 'heat' if mode == 'heating' else 'cool' }}"
-    switch_is_on:   "{{ is_state('switch.office_power', 'on') }}"
-    current_hvac:   "{{ states('climate.office') }}"
-    current_target: "{{ state_attr('climate.office', 'temperature') | float(none) }}"
+    lead: 2
+    enabled: "{{ is_state('input_boolean.hvac_enable', 'on') }}"
+    backup: "{{ is_state('input_boolean.backup_heat', 'on') }}"
+    stored: "{{ states('input_select.system_hvac_mode') }}"
+    dwell_active: "{{ is_state('timer.mode_min_dwell', 'active') }}"
+    office_temp: "{{ states('sensor.office_baseboard_current_temperature') | float(0) }}"
+    studio_temp: "{{ states('sensor.studio_baseboard_current_temperature') | float(0) }}"
+    office_hb: "{{ states('input_number.office_heat_bound') | float(0) }}"
+    office_cb: "{{ states('input_number.office_cool_bound') | float(0) }}"
+    studio_hb: "{{ states('input_number.studio_heat_bound') | float(0) }}"
+    studio_cb: "{{ states('input_number.studio_cool_bound') | float(0) }}"
+    office_diff: "{{ states('input_number.office_temp_differential') | float(0) }}"
+    studio_diff: "{{ states('input_number.studio_temp_differential') | float(0) }}"
+    office_switch_on: "{{ is_state('switch.office_power', 'on') }}"
+    studio_switch_on: "{{ is_state('switch.studio_power', 'on') }}"
+    office_dir: "{{ stored if office_switch_on and stored in ['heat', 'cool'] else 'none' }}"
+    studio_dir: "{{ stored if studio_switch_on and stored in ['heat', 'cool'] else 'none' }}"
+    office_demand: >-
+      {% from 'hvac.jinja' import room_demand %}
+      {{- room_demand(office_temp, office_hb, office_cb, office_diff, office_dir) -}}
+    studio_demand: >-
+      {% from 'hvac.jinja' import room_demand %}
+      {{- room_demand(studio_temp, studio_hb, studio_cb, studio_diff, studio_dir) -}}
+    resolved: >-
+      {% from 'hvac.jinja' import resolve_mode %}
+      {{- resolve_mode(office_demand, studio_demand) -}}
+    effective: "{{ stored if (dwell_active and stored in ['heat', 'cool']) else resolved }}"
+    office_want_on: >-
+      {{ (effective == 'heat' and office_demand == 'heat')
+         or (effective == 'cool' and office_demand == 'cool') }}
+    studio_want_on: >-
+      {{ (effective == 'heat' and studio_demand == 'heat')
+         or (effective == 'cool' and studio_demand == 'cool') }}
+    desired_hvac: "{{ 'heat' if effective == 'heat' else 'cool' if effective == 'cool' else '' }}"
+    office_target_raw: >-
+      {% from 'hvac.jinja' import head_target %}
+      {{- head_target(effective, office_hb, office_cb, lead) -}}
+    studio_target_raw: >-
+      {% from 'hvac.jinja' import head_target %}
+      {{- head_target(effective, studio_hb, studio_cb, lead) -}}
+    office_target: "{{ office_target_raw | float(0) }}"
+    studio_target: "{{ studio_target_raw | float(0) }}"
+    office_lockout: "{{ is_state('timer.office_head_lockout', 'active') }}"
+    studio_lockout: "{{ is_state('timer.studio_head_lockout', 'active') }}"
+    current_office_hvac: "{{ states('climate.office') }}"
+    current_studio_hvac: "{{ states('climate.studio') }}"
+    current_office_target: "{{ state_attr('climate.office', 'temperature') | float(0) }}"
+    current_studio_target: "{{ state_attr('climate.studio', 'temperature') | float(0) }}"
+    safe_mode: "{{ 'off' if not enabled else 'idle' }}"
   conditions:
-  - "{{ mode in ['heating', 'cooling'] }}"
   - "{{ states('sensor.office_baseboard_current_temperature') not in ['unavailable', 'unknown'] }}"
-  - "{{ states('sensor.office_heat_pump_setpoint_temperature') not in ['unavailable', 'unknown'] }}"
-  - "{{ states('switch.office_power') not in ['unavailable', 'unknown'] }}"
-  - "{{ states('climate.office') not in ['unavailable', 'unknown'] }}"
-  actions:
-  - choose:
-    # Was off, need on → turn on + set mode + target atomically
-    - conditions: "{{ desired_on and not switch_is_on }}"
-      sequence:
-      - action: switch.turn_on
-        target:
-          entity_id: switch.office_power
-      - action: climate.set_temperature
-        target:
-          entity_id: climate.office
-        data:
-          temperature: "{{ setpoint }}"
-          hvac_mode: "{{ desired_hvac }}"
-    # Already on, mode or target drifted (subsumes office_temperature_sync)
-    - conditions: >-
-        {{ desired_on and switch_is_on and
-           (current_hvac != desired_hvac or current_target != setpoint) }}
-      sequence:
-      - action: climate.set_temperature
-        target:
-          entity_id: climate.office
-        data:
-          temperature: "{{ setpoint }}"
-          hvac_mode: "{{ desired_hvac }}"
-    # Overshooting wrong direction → off
-    - conditions: "{{ desired_off and switch_is_on }}"
-      sequence:
-      - action: switch.turn_off
-        target:
-          entity_id: switch.office_power
-  mode: single
-
-- id: studio_hvac_controller
-  alias: Studio HVAC Controller
-  description: >-
-    Drive the studio heat pump (switch + climate) toward preferred ± swing.
-    Fires only when setpoint, mode, preferred, or swing change, plus a 5-min
-    safety heartbeat. Every Cielo API call is gated on a desired-vs-current
-    delta.
-  triggers:
-  - trigger: state
-    entity_id:
-    - sensor.studio_heat_pump_setpoint_temperature
-    - input_number.studio_preferred_temperature
-    - input_number.studio_temp_range
-  - trigger: state
-    entity_id: input_select.heat_pump_mode
-    for:
-      minutes: 2
-  - trigger: time_pattern
-    minutes: /5
-  variables:
-    current_temp:   "{{ states('sensor.studio_baseboard_current_temperature') | float(0) }}"
-    preferred:      "{{ states('input_number.studio_preferred_temperature')   | float(0) }}"
-    swing:          "{{ states('input_number.studio_temp_range')              | float(0) }}"
-    mode:           "{{ states('input_select.heat_pump_mode') }}"
-    setpoint:       "{{ states('sensor.studio_heat_pump_setpoint_temperature') | float(0) }}"
-    too_cold:       "{{ current_temp < (preferred - swing) }}"
-    too_hot:        "{{ current_temp > (preferred + swing) }}"
-    desired_on:     "{{ (mode == 'heating' and too_cold) or (mode == 'cooling' and too_hot) }}"
-    desired_off:    "{{ (mode == 'heating' and too_hot)  or (mode == 'cooling' and too_cold) }}"
-    desired_hvac:   "{{ 'heat' if mode == 'heating' else 'cool' }}"
-    switch_is_on:   "{{ is_state('switch.studio_power', 'on') }}"
-    current_hvac:   "{{ states('climate.studio') }}"
-    current_target: "{{ state_attr('climate.studio', 'temperature') | float(none) }}"
-  conditions:
-  - "{{ mode in ['heating', 'cooling'] }}"
   - "{{ states('sensor.studio_baseboard_current_temperature') not in ['unavailable', 'unknown'] }}"
-  - "{{ states('sensor.studio_heat_pump_setpoint_temperature') not in ['unavailable', 'unknown'] }}"
+  - "{{ states('switch.office_power') not in ['unavailable', 'unknown'] }}"
   - "{{ states('switch.studio_power') not in ['unavailable', 'unknown'] }}"
+  - "{{ states('climate.office') not in ['unavailable', 'unknown'] }}"
   - "{{ states('climate.studio') not in ['unavailable', 'unknown'] }}"
   actions:
+  - if: "{{ not enabled or backup }}"
+    then:
+    # Force-off ignores an active lockout, but still ARMS the lockout so a quick
+    # re-enable / backup-heat flap can't restart the compressor immediately.
+    - if: "{{ office_switch_on }}"
+      then:
+      - action: switch.turn_off
+        target:
+          entity_id: switch.office_power
+      - action: timer.start
+        target:
+          entity_id: timer.office_head_lockout
+    - if: "{{ studio_switch_on }}"
+      then:
+      - action: switch.turn_off
+        target:
+          entity_id: switch.studio_power
+      - action: timer.start
+        target:
+          entity_id: timer.studio_head_lockout
+    - if: "{{ stored != safe_mode }}"
+      then:
+      - action: input_select.select_option
+        target:
+          entity_id: input_select.system_hvac_mode
+        data:
+          option: "{{ safe_mode }}"
+    - stop: master disabled or backup heat
+  - if: "{{ effective != stored }}"
+    then:
+    - action: input_select.select_option
+      target:
+        entity_id: input_select.system_hvac_mode
+      data:
+        option: "{{ effective }}"
+    - if: "{{ effective in ['heat', 'cool'] }}"
+      then:
+      - action: timer.start
+        target:
+          entity_id: timer.mode_min_dwell
   - choose:
-    - conditions: "{{ desired_on and not switch_is_on }}"
+    - conditions: "{{ office_want_on and not office_switch_on and not office_lockout }}"
+      sequence:
+      - action: switch.turn_on
+        target:
+          entity_id: switch.office_power
+      - action: climate.set_temperature
+        target:
+          entity_id: climate.office
+        data:
+          temperature: "{{ office_target }}"
+          hvac_mode: "{{ desired_hvac }}"
+      - action: timer.start
+        target:
+          entity_id: timer.office_head_lockout
+    - conditions: >-
+        {{ office_want_on and office_switch_on
+           and (current_office_hvac != desired_hvac
+                or current_office_target != office_target) }}
+      sequence:
+      - action: climate.set_temperature
+        target:
+          entity_id: climate.office
+        data:
+          temperature: "{{ office_target }}"
+          hvac_mode: "{{ desired_hvac }}"
+    - conditions: "{{ not office_want_on and office_switch_on and not office_lockout }}"
+      sequence:
+      - action: switch.turn_off
+        target:
+          entity_id: switch.office_power
+      - action: timer.start
+        target:
+          entity_id: timer.office_head_lockout
+  - choose:
+    - conditions: "{{ studio_want_on and not studio_switch_on and not studio_lockout }}"
       sequence:
       - action: switch.turn_on
         target:
@@ -142,23 +194,30 @@
         target:
           entity_id: climate.studio
         data:
-          temperature: "{{ setpoint }}"
+          temperature: "{{ studio_target }}"
           hvac_mode: "{{ desired_hvac }}"
+      - action: timer.start
+        target:
+          entity_id: timer.studio_head_lockout
     - conditions: >-
-        {{ desired_on and switch_is_on and
-           (current_hvac != desired_hvac or current_target != setpoint) }}
+        {{ studio_want_on and studio_switch_on
+           and (current_studio_hvac != desired_hvac
+                or current_studio_target != studio_target) }}
       sequence:
       - action: climate.set_temperature
         target:
           entity_id: climate.studio
         data:
-          temperature: "{{ setpoint }}"
+          temperature: "{{ studio_target }}"
           hvac_mode: "{{ desired_hvac }}"
-    - conditions: "{{ desired_off and switch_is_on }}"
+    - conditions: "{{ not studio_want_on and studio_switch_on and not studio_lockout }}"
       sequence:
       - action: switch.turn_off
         target:
           entity_id: switch.studio_power
+      - action: timer.start
+        target:
+          entity_id: timer.studio_head_lockout
   mode: single
 
 # ============================================================
@@ -195,12 +254,16 @@
     target:
       entity_id: climate.neviweb130_climate_th1123wf
     data:
-      temperature: "{{ states('input_number.office_preferred_temperature') | float }}"
+      temperature: >-
+        {{ ((states('input_number.office_heat_bound') | float
+             + states('input_number.office_cool_bound') | float) / 2) | round(0) }}
   - action: climate.set_temperature
     target:
       entity_id: climate.neviweb130_climate_th1124wf
     data:
-      temperature: "{{ states('input_number.studio_preferred_temperature') | float }}"
+      temperature: >-
+        {{ ((states('input_number.studio_heat_bound') | float
+             + states('input_number.studio_cool_bound') | float) / 2) | round(0) }}
   - action: notify.notification_group
     data:
       message: Heat Pump Heating is Disabled, Baseboard Heat is Being Used
@@ -230,12 +293,12 @@
     target:
       entity_id: climate.neviweb130_climate_th1123wf
     data:
-      temperature: "{{ states('input_number.office_preferred_temperature') | float - 2.5 }}"
+      temperature: "{{ states('input_number.office_heat_bound') | float - 2.5 }}"
   - action: climate.set_temperature
     target:
       entity_id: climate.neviweb130_climate_th1124wf
     data:
-      temperature: "{{ states('input_number.studio_preferred_temperature') | float - 2.5 }}"
+      temperature: "{{ states('input_number.studio_heat_bound') | float - 2.5 }}"
   - action: notify.notification_group
     data:
       message: Heat Pump is Enabled
@@ -427,158 +490,4 @@
       - action: timer.start
         target:
           entity_id: timer.humidifier_manual_grace
-  mode: queued
-
-# ---------------------------------------------------------------------------
-# Changeover advisor
-#
-# Suggest-and-confirm seasonal changeover — see docs/superpowers/specs/
-# 2026-06-07-changeover-advisor-design.md. sensor.changeover_balance
-# (configuration.yaml) nominates heating / cooling / off from 24 h of EC
-# hourly forecast degree-hours plus a 2-day daily-forecast agreement gate (it
-# only suggests when the near-term and multi-day regimes agree); the advisor
-# only notifies when a room whose
-# heat pump has been idle (duty-cycle alibi) confirms the demand, no hold is
-# running, and backup heat is off. A human gates every changeover via the
-# actionable notification. timer.changeover_hold: 12 h after any suggestion
-# (nag floor), 24 h after any mode change (minimum time-in-mode).
-
-- id: heat_pump_mode_advisor
-  alias: Heat Pump Mode Advisor
-  description: >-
-    Hourly (at :05, after sensor.changeover_balance refreshes at :00) and when
-    the hold expires: compute the candidate regime, require duty-cycle-backed
-    indoor confirmation, then send an actionable changeover suggestion and
-    start the 12 h nag-floor hold.
-  triggers:
-  - trigger: time_pattern
-    minutes: "5"
-  - trigger: event
-    event_type: timer.finished
-    event_data:
-      entity_id: timer.changeover_hold
-  variables:
-    cdh: "{{ state_attr('sensor.changeover_balance', 'cdh') | float(0) }}"
-    hdh: "{{ state_attr('sensor.changeover_balance', 'hdh') | float(0) }}"
-    deadband: "{{ states('input_number.changeover_deadband') | float(24) }}"
-    candidate: >-
-      {% from 'changeover.jinja' import candidate_mode %}
-      {{- candidate_mode(cdh, hdh, deadband) -}}
-    daily_candidate: >-
-      {% from 'changeover.jinja' import candidate_mode %}
-      {{- candidate_mode(
-            state_attr('sensor.changeover_balance', 'daily_cdh') | float(0),
-            state_attr('sensor.changeover_balance', 'daily_hdh') | float(0),
-            states('input_number.changeover_daily_deadband') | float(1.0)) -}}
-    current_mode: "{{ states('input_select.heat_pump_mode') }}"
-    confirmed: >-
-      {% from 'changeover.jinja' import confirmation %}
-      {{- confirmation(candidate,
-                       states('sensor.office_temperature_2h_mean'),
-                       states('sensor.studio_temperature_1h_mean'),
-                       states('sensor.office_heat_pump_duty_24h'),
-                       states('sensor.studio_heat_pump_duty_24h'),
-                       states('input_number.office_preferred_temperature'),
-                       states('input_number.office_temp_range'),
-                       states('input_number.studio_preferred_temperature'),
-                       states('input_number.studio_temp_range')) -}}
-  conditions:
-  - "{{ states('sensor.changeover_balance') not in ['unavailable', 'unknown'] }}"
-  - "{{ states('sensor.office_temperature_2h_mean') not in ['unavailable', 'unknown'] }}"
-  - "{{ states('sensor.studio_temperature_1h_mean') not in ['unavailable', 'unknown'] }}"
-  - "{{ states('sensor.office_heat_pump_duty_24h') not in ['unavailable', 'unknown'] }}"
-  - "{{ states('sensor.studio_heat_pump_duty_24h') not in ['unavailable', 'unknown'] }}"
-  - "{{ is_state('input_boolean.backup_heat', 'off') }}"
-  - "{{ is_state('timer.changeover_hold', 'idle') }}"
-  - "{{ candidate != current_mode }}"
-  - "{{ candidate == daily_candidate }}"
-  - "{{ confirmed | string == 'True' }}"
-  actions:
-  - action: notify.mobile_app_pixel_8
-    data:
-      title: Heat pump changeover
-      message: >-
-        Next 24 h: {{ cdh | round(0) | int }} cooling vs {{ hdh | round(0) | int }}
-        heating degree-hours, and the 2-day trend agrees
-        ({{ state_attr('sensor.changeover_balance', 'daily_cdh') | round(0) | int }} vs
-        {{ state_attr('sensor.changeover_balance', 'daily_hdh') | round(0) | int }} °C·day).
-        Office 2 h mean {{ states('sensor.office_temperature_2h_mean') }} °C, studio
-        1 h mean {{ states('sensor.studio_temperature_1h_mean') }} °C. Switch to
-        {{ candidate }}?
-      data:
-        tag: changeover
-        actions:
-        - action: "CHANGEOVER_ACCEPT_{{ candidate }}"
-          title: "Switch to {{ candidate }}"
-        - action: CHANGEOVER_DISMISS
-          title: Not now
-  - action: timer.start
-    target:
-      entity_id: timer.changeover_hold
-    data:
-      duration: "12:00:00"
-  mode: single
-
-- id: heat_pump_mode_advisor_response
-  alias: Heat Pump Mode Advisor Response
-  description: >-
-    Apply an accepted changeover suggestion. The action id carries the
-    candidate that was offered, so even a stale tap applies exactly what was
-    offered. "Not now" needs no handler — the 12 h hold already started when
-    the suggestion was sent.
-  triggers:
-  - trigger: event
-    event_type: mobile_app_notification_action
-    event_data:
-      action: CHANGEOVER_ACCEPT_heating
-  - trigger: event
-    event_type: mobile_app_notification_action
-    event_data:
-      action: CHANGEOVER_ACCEPT_cooling
-  - trigger: event
-    event_type: mobile_app_notification_action
-    event_data:
-      action: CHANGEOVER_ACCEPT_off
-  actions:
-  - action: input_select.select_option
-    target:
-      entity_id: input_select.heat_pump_mode
-    data:
-      option: "{{ trigger.event.data.action | replace('CHANGEOVER_ACCEPT_', '') }}"
-  mode: queued
-
-- id: heat_pump_mode_changed
-  alias: Heat Pump Mode Changed
-  description: >-
-    Every real mode change — advisor-accepted or manual — starts the 24 h
-    minimum-time-in-mode hold so the advisor cannot second-guess a fresh mode.
-    Entering off also powers down both heads, each call gated on the switch
-    actually being on (Cielo API dedupe).
-  triggers:
-  - trigger: state
-    entity_id: input_select.heat_pump_mode
-  conditions:
-  - "{{ trigger.from_state is not none and trigger.to_state is not none and
-        trigger.from_state.state != trigger.to_state.state }}"
-  actions:
-  - action: timer.start
-    target:
-      entity_id: timer.changeover_hold
-    data:
-      duration: "24:00:00"
-  - if:
-    - "{{ trigger.to_state.state == 'off' }}"
-    then:
-    - if:
-      - "{{ is_state('switch.office_power', 'on') }}"
-      then:
-      - action: switch.turn_off
-        target:
-          entity_id: switch.office_power
-    - if:
-      - "{{ is_state('switch.studio_power', 'on') }}"
-      then:
-      - action: switch.turn_off
-        target:
-          entity_id: switch.studio_power
   mode: queued

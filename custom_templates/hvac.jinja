@@ -1,0 +1,41 @@
+{# Decision macros for the two-setpoint auto heat/cool coordinator.
+   Pure functions — rendered by tests and by the hvac_coordinator automation.
+
+   room_demand: what one room wants given its reliable temperature, its two
+   bounds, a hysteresis differential, and the direction it is *currently*
+   running ('heat' | 'cool' | 'none'). A running head keeps going `differential`
+   degrees past its bound before it stops, so it cannot short-cycle at the bound.
+   Returns 'heat' | 'cool' | 'none'. #}
+{% macro room_demand(temp, heat_bound, cool_bound, differential, current) -%}
+  {%- set t = temp | float -%}
+  {%- set hb = heat_bound | float -%}
+  {%- set cb = cool_bound | float -%}
+  {%- set d = differential | float -%}
+  {%- if t <= hb or (current == 'heat' and t < hb + d) -%}heat
+  {%- elif t >= cb or (current == 'cool' and t > cb - d) -%}cool
+  {%- else -%}none
+  {%- endif -%}
+{%- endmacro %}
+
+{# resolve_mode: one system-wide mode for the shared compressor. Heating wins
+   any conflict. Returns 'heat' | 'cool' | 'idle'. #}
+{% macro resolve_mode(office_demand, studio_demand) -%}
+  {%- if office_demand == 'heat' or studio_demand == 'heat' -%}heat
+  {%- elif office_demand == 'cool' or studio_demand == 'cool' -%}cool
+  {%- else -%}idle
+  {%- endif -%}
+{%- endmacro %}
+
+{# head_target: the temperature to command a head, a small `lead` past the
+   active bound so the inverter stays committed (the coordinator does the real
+   cutoff against the reliable room sensor). Clamped to [17, 30]; bounds use
+   0.5 steps and `lead` is an integer, so results land on 0.5 increments (no
+   rounding needed). Empty for a non-active mode. #}
+{% macro head_target(mode, heat_bound, cool_bound, lead) -%}
+  {%- set l = lead | float -%}
+  {%- if mode == 'heat' -%}
+    {{ [17, [30, (heat_bound | float + l)] | min] | max }}
+  {%- elif mode == 'cool' -%}
+    {{ [17, [30, (cool_bound | float - l)] | min] | max }}
+  {%- endif -%}
+{%- endmacro %}
