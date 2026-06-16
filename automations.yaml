@@ -86,7 +86,7 @@
     studio_want_on: >-
       {{ (effective == 'heat' and studio_demand == 'heat')
          or (effective == 'cool' and studio_demand == 'cool') }}
-    desired_hvac: "{{ 'heat' if effective == 'heat' else 'cool' }}"
+    desired_hvac: "{{ 'heat' if effective == 'heat' else 'cool' if effective == 'cool' else '' }}"
     office_target_raw: >-
       {% from 'hvac.jinja' import head_target %}
       {{- head_target(effective, office_hb, office_cb, lead) -}}
