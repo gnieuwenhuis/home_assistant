@@ -84,3 +84,76 @@ notify:
     name: "Notification Group"
     services:
       - action: mobile_app_pixel_8
+
+# Display/entry facade for ecobee-style dual-setpoint thermostat cards.
+# Requires the HACS "Climate Template" integration (platform: climate_template).
+# These entities issue NO direct device calls — all real control lives in the
+# hvac_coordinator automation. Confirm exact field names against the installed
+# integration's README before deploying.
+climate:
+  - platform: climate_template
+    name: Office Thermostat
+    unique_id: office_thermostat
+    modes:
+      - "off"
+      - "heat_cool"
+    min_temp: 15
+    max_temp: 30
+    temp_step: 0.5
+    current_temperature_template: "{{ states('sensor.office_baseboard_current_temperature') }}"
+    target_temperature_low_template: "{{ states('input_number.office_heat_bound') }}"
+    target_temperature_high_template: "{{ states('input_number.office_cool_bound') }}"
+    hvac_mode_template: "{{ 'heat_cool' if is_state('input_boolean.hvac_enable', 'on') else 'off' }}"
+    hvac_action_template: >-
+      {% if not is_state('input_boolean.hvac_enable', 'on') %}off
+      {%- elif is_state('switch.office_power', 'on') and is_state('input_select.system_hvac_mode', 'heat') %}heating
+      {%- elif is_state('switch.office_power', 'on') and is_state('input_select.system_hvac_mode', 'cool') %}cooling
+      {%- else %}idle{% endif %}
+    set_temperature:
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.office_heat_bound
+        data:
+          value: "{{ target_temp_low }}"
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.office_cool_bound
+        data:
+          value: "{{ target_temp_high }}"
+    set_hvac_mode:
+      - action: "input_boolean.turn_{{ 'on' if hvac_mode == 'heat_cool' else 'off' }}"
+        target:
+          entity_id: input_boolean.hvac_enable
+  - platform: climate_template
+    name: Studio Thermostat
+    unique_id: studio_thermostat
+    modes:
+      - "off"
+      - "heat_cool"
+    min_temp: 15
+    max_temp: 30
+    temp_step: 0.5
+    current_temperature_template: "{{ states('sensor.studio_baseboard_current_temperature') }}"
+    target_temperature_low_template: "{{ states('input_number.studio_heat_bound') }}"
+    target_temperature_high_template: "{{ states('input_number.studio_cool_bound') }}"
+    hvac_mode_template: "{{ 'heat_cool' if is_state('input_boolean.hvac_enable', 'on') else 'off' }}"
+    hvac_action_template: >-
+      {% if not is_state('input_boolean.hvac_enable', 'on') %}off
+      {%- elif is_state('switch.studio_power', 'on') and is_state('input_select.system_hvac_mode', 'heat') %}heating
+      {%- elif is_state('switch.studio_power', 'on') and is_state('input_select.system_hvac_mode', 'cool') %}cooling
+      {%- else %}idle{% endif %}
+    set_temperature:
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.studio_heat_bound
+        data:
+          value: "{{ target_temp_low }}"
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.studio_cool_bound
+        data:
+          value: "{{ target_temp_high }}"
+    set_hvac_mode:
+      - action: "input_boolean.turn_{{ 'on' if hvac_mode == 'heat_cool' else 'off' }}"
+        target:
+          entity_id: input_boolean.hvac_enable
