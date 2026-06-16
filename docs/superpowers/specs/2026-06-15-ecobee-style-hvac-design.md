@@ -254,6 +254,36 @@ The two backup-heat automations stay, retargeted off the removed `preferred`:
   and the baseboards only catch deep cold (preserves the existing −2.5 °C
   "pump leads" intent).
 
+### Heating effort & winter (why no proportional steering)
+
+A prior controller steered the head's setpoint *past* the target proportional to
+the room error (`preferred + k×error`) to "make the pump work harder" when the
+room was far off. We deliberately do **not** do that here. Two reasons:
+
+1. **The inverter already provides proportional effort.** A variable-speed
+   mini-split ramps its compressor up from the lowest speed based on the gap
+   between *its* sensor and *its* setpoint — gentle near setpoint, toward max
+   when the gap is large. So "work harder when the room is further away" is
+   built into the unit; stacking our own gain on top is what caused the earlier
+   overshoot.
+2. **The head's running sensor ≈ room temp** (observed: in this small,
+   well-mixed room the head sensor converges to the room reading after running a
+   while). So when we command the head to the **bound** (`lead = 0`), the unit
+   sees the *true* room error and ramps proportionally to it — colder room →
+   bigger error → harder it works — and, with no static warm bias, it does **not**
+   idle short of the bound. The un-backstoppable winter failure (head satisfied
+   while the room is still cold) only occurs with a persistent warm bias, which
+   we don't have. So no setpoint offset is needed.
+
+**Winter watch (decision rule).** If the studio/office plateaus *below*
+`heat_bound`, read `climate.<room>` at that moment:
+- Head reads ≈ `heat_bound` while the baseboard is below it → the head is idling
+  short → a residual warm bias exists → *then* add a small fixed heating offset
+  (`heat_bound + offset`). This is the only case that justifies an offset.
+- Head reads ≈ the (low) room temp with the compressor maxed → capacity
+  shortfall, not a control problem → backup heat handles it (a higher setpoint
+  extracts nothing past max output).
+
 ### Humidity
 
 Untouched.
