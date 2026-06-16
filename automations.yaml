@@ -176,7 +176,10 @@
         data:
           temperature: "{{ office_target }}"
           hvac_mode: "{{ desired_hvac }}"
-    - conditions: "{{ not office_want_on and office_switch_on and not office_lockout }}"
+    # Turn OFF as soon as demand ends — NOT gated on the lockout. The lockout is
+    # a minimum OFF-time (it gates the next turn-ON); blocking the off forces the
+    # head to over-cool/over-heat past the bound. Arm the lockout on the off.
+    - conditions: "{{ not office_want_on and office_switch_on }}"
       sequence:
       - action: switch.turn_off
         target:
@@ -210,7 +213,8 @@
         data:
           temperature: "{{ studio_target }}"
           hvac_mode: "{{ desired_hvac }}"
-    - conditions: "{{ not studio_want_on and studio_switch_on and not studio_lockout }}"
+    # Turn OFF as soon as demand ends — NOT gated on the lockout (see office).
+    - conditions: "{{ not studio_want_on and studio_switch_on }}"
       sequence:
       - action: switch.turn_off
         target:
