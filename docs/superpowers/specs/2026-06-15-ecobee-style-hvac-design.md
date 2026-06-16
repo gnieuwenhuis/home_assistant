@@ -140,11 +140,11 @@ consequence of "heating wins."
    head past the bound before cutting. Default **office 1.0 °C** (fast room),
    **studio 0.5 °C**.
 3. **Per-head lockout** `timer.<room>_head_lockout` — a minimum **off**-time:
-   started whenever a head turns **off** (normal or safety force-off), it gates
-   the next turn-**on** until it expires, protecting the compressor from rapid
-   restarts. It **never** blocks a turn-**off** — the coordinator turns a head
-   off the instant demand ends, so the head can never be forced to keep running
-   past the bound (blocking the off was a key driver of the over-cool yo-yo).
+   armed on every head toggle (on or off); it gates the next turn-**on** until it
+   expires, protecting the compressor from rapid restarts. It **never** blocks a
+   turn-**off** — the coordinator turns a head off the instant demand ends, so the
+   head can never be forced to keep running past the bound (blocking the off was a
+   key driver of the over-cool yo-yo).
    Default **office 8 min**, **studio 6 min** (durations set in the timer
    definitions). A safety force-off (master-off or backup-heat) also arms the
    lockout, so a quick re-enable or a backup-heat flap around −12 °C can't
