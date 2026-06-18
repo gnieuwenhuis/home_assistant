@@ -13,7 +13,7 @@ Tracked:
 - `scripts.yaml`, `scenes.yaml` — included from `configuration.yaml`; currently empty
 - `custom_templates/hvac.jinja` — the heat-pump coordinator decision macros
 - `tests/`, `pytest.ini`, `requirements-dev.txt` — pytest harness (see "Tests")
-- `helpers.yaml` — `input_number` / `input_boolean` / `input_select` definitions; **not yet wired** into `configuration.yaml` (see "Helpers migration" below)
+- `helpers.yaml` — `input_number` / `input_boolean` / `input_select` / `timer` definitions; wired into `configuration.yaml` as a package (see "Helpers migration" below)
 - `secrets.yaml.example` — placeholder showing which `!secret` keys must exist
 
 Not tracked (in `.gitignore`):
@@ -140,10 +140,19 @@ Three invariants are enforced by construction:
 
 - **Never both on.** Turn-on branches require the opposite device to be off; a mutual-exclusion
   safety branch turns off the wrong device (humidity decides) if both are ever on.
-- **Relaxation cooldown.** Any controller turn-off starts `timer.humidity_cooldown` (15 min);
-  turn-ons are blocked while it runs, so an overshoot can't immediately trip the opposite
-  device. The controller is `mode: single` so its own switch events don't restart it mid-run;
-  the deferred turn-on is driven by the `timer.finished` trigger and the 5-min heartbeat.
+- **Cross-device relaxation cooldown.** There are **two** cooldown timers (30 min each):
+  `timer.dehumidify_cooldown` is armed when the dehumidifier turns off and blocks the
+  **humidifier** turn-on; `timer.humidify_cooldown` is armed when the humidifier turns off and
+  blocks the **dehumidifier** turn-on. A turn-off overshoot (e.g. the dehumidifier coasting
+  below the humidifier ON point under high outdoor humidity) thus recovers before the opposite
+  device can react. Crucially, a device's **own** cooldown never gates that same device — the
+  active device re-engages at its threshold instead of drifting while a cooldown runs — so
+  same-device cycling is bounded only by the tight `±tolerance` dead band, which keeps the
+  room near `set_point` (the studio holds ~42 % for the instruments). The controller is
+  `mode: single` so its own switch events don't restart it mid-run; the deferred turn-on is
+  driven by the `timer.finished` trigger and the 5-min heartbeat. *(This replaced a single
+  shared `timer.humidity_cooldown` that blocked both turn-ons — that let the dehumidifier
+  drift up before re-engaging, and a deep overshoot could still trip the opposite device.)*
 - **Respect manual flips.** `studio_humidity_manual_detector` compares each switch change
   against an `input_boolean.<device>_intended` mirror (set by the controller before it
   commands) to tell manual changes apart from controller ones, and arms a 15-min
@@ -151,8 +160,9 @@ Three invariants are enforced by construction:
   active (except the both-on safety).
 
 The humidity helpers (`input_boolean.dehumidifier_intended`, `input_boolean.humidifier_intended`,
-and the three `timer.*` entities) follow the same "UI-defined now, mirrored in `helpers.yaml`
-for the eventual migration" status as the other helpers.
+and the four `timer.*` entities — `dehumidify_cooldown`, `humidify_cooldown`,
+`dehumidifier_manual_grace`, `humidifier_manual_grace`) follow the same "UI-defined now,
+mirrored in `helpers.yaml` for the eventual migration" status as the other helpers.
 
 ## Conventions
 

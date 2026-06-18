@@ -111,9 +111,20 @@ input_select:
       - "off"
 
 timer:
-  humidity_cooldown:
-    name: Humidity Cooldown
-    duration: "00:15:00"
+  # Cross-device cooldowns: each is armed when its OWN device turns off and
+  # blocks the OPPOSITE device's turn-on, so a turn-off overshoot recovers
+  # before the other device reacts. A device's own cooldown never blocks that
+  # same device re-engaging — the tight ±tolerance band governs same-device
+  # cycling — so the dehumidifier re-engages at its high threshold instead of
+  # drifting up while a single shared cooldown runs. 30 min outlasts the
+  # observed overshoot recovery under high outdoor humidity.
+  dehumidify_cooldown:
+    name: Dehumidify Cooldown
+    duration: "00:30:00"
+    restore: true
+  humidify_cooldown:
+    name: Humidify Cooldown
+    duration: "00:30:00"
     restore: true
   dehumidifier_manual_grace:
     name: Dehumidifier Manual Grace

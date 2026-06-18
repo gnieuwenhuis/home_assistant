@@ -337,11 +337,12 @@
   alias: Studio Humidity Controller
   description: >-
     Reconcile the studio humidifier/dehumidifier from the current humidity
-    level. Enforces mutual exclusion (never both on), a 15-min cross-device
-    relaxation cooldown after a controller turn-off, and a 15-min grace window
-    after a manual switch flip. Fires on humidity/setpoint/switch/timer changes,
-    HA start, and a 5-min heartbeat. Performs at most one action per run, gated
-    on real deltas.
+    level. Enforces mutual exclusion (never both on), per-device 30-min
+    cross-device cooldowns (a device's turn-off blocks the OPPOSITE device's
+    turn-on, never its own) so a turn-off overshoot recovers before the other
+    device reacts, and a 15-min grace window after a manual switch flip. Fires on
+    humidity/setpoint/switch/timer changes, HA start, and a 5-min heartbeat.
+    Performs at most one action per run, gated on real deltas.
   triggers:
   - trigger: state
     entity_id:
@@ -353,7 +354,11 @@
   - trigger: event
     event_type: timer.finished
     event_data:
-      entity_id: timer.humidity_cooldown
+      entity_id: timer.dehumidify_cooldown
+  - trigger: event
+    event_type: timer.finished
+    event_data:
+      entity_id: timer.humidify_cooldown
   - trigger: event
     event_type: timer.finished
     event_data:
@@ -372,7 +377,12 @@
     tolerance:       "{{ states('input_number.humidity_tolerance') | float(0) }}"
     dehum_on:        "{{ is_state('switch.mini_plug_4_socket_1', 'on') }}"
     humid_on:        "{{ is_state('switch.studio_humidifier_socket_1', 'on') }}"
-    cooldown_active: "{{ is_state('timer.humidity_cooldown', 'active') }}"
+    # Cross-device cooldowns: dehumidify_cd (armed on dehum OFF) gates the
+    # HUMIDIFIER on; humidify_cd (armed on humid OFF) gates the DEHUMIDIFIER on.
+    # A device's own cooldown never gates itself — same-device cycling is bounded
+    # by the tight ±tolerance band, so the active device re-engages promptly.
+    dehumidify_cd:   "{{ is_state('timer.dehumidify_cooldown', 'active') }}"
+    humidify_cd:     "{{ is_state('timer.humidify_cooldown', 'active') }}"
     dehum_grace:     "{{ is_state('timer.dehumidifier_manual_grace', 'active') }}"
     humid_grace:     "{{ is_state('timer.humidifier_manual_grace', 'active') }}"
     desired_dehum: >-
@@ -403,6 +413,10 @@
         - action: switch.turn_off
           target:
             entity_id: switch.studio_humidifier_socket_1
+        # Arm the loser's own cooldown so it gates the opposite device's restart.
+        - action: timer.start
+          target:
+            entity_id: timer.humidify_cooldown
         else:
         - action: input_boolean.turn_off
           target:
@@ -410,10 +424,11 @@
         - action: switch.turn_off
           target:
             entity_id: switch.mini_plug_4_socket_1
-      - action: timer.start
-        target:
-          entity_id: timer.humidity_cooldown
-    # 2) Dehumidifier should turn OFF (respect manual grace). Start cooldown.
+        - action: timer.start
+          target:
+            entity_id: timer.dehumidify_cooldown
+    # 2) Dehumidifier should turn OFF (respect manual grace). Arm the dehumidify
+    #    cooldown so a downward overshoot recovers before the humidifier reacts.
     - conditions: "{{ not desired_dehum and dehum_on and not dehum_grace }}"
       sequence:
       - action: input_boolean.turn_off
@@ -424,8 +439,9 @@
           entity_id: switch.mini_plug_4_socket_1
       - action: timer.start
         target:
-          entity_id: timer.humidity_cooldown
-    # 3) Humidifier should turn OFF (respect manual grace). Start cooldown.
+          entity_id: timer.dehumidify_cooldown
+    # 3) Humidifier should turn OFF (respect manual grace). Arm the humidify
+    #    cooldown so an upward overshoot recovers before the dehumidifier reacts.
     - conditions: "{{ not desired_humid and humid_on and not humid_grace }}"
       sequence:
       - action: input_boolean.turn_off
@@ -436,12 +452,14 @@
           entity_id: switch.studio_humidifier_socket_1
       - action: timer.start
         target:
-          entity_id: timer.humidity_cooldown
+          entity_id: timer.humidify_cooldown
     # 4) Dehumidifier should turn ON. Gated on: humidifier off (mutual
-    #    exclusion), no dehum grace, cooldown not active.
+    #    exclusion), no dehum grace, and the HUMIDIFY cooldown not active (a
+    #    recent humidifier-off overshoot must clear first). Its OWN dehumidify
+    #    cooldown does not gate it — it re-engages at the high threshold.
     - conditions: >-
         {{ desired_dehum and not dehum_on and not humid_on
-           and not dehum_grace and not cooldown_active }}
+           and not dehum_grace and not humidify_cd }}
       sequence:
       - action: input_boolean.turn_on
         target:
@@ -450,10 +468,12 @@
         target:
           entity_id: switch.mini_plug_4_socket_1
     # 5) Humidifier should turn ON. Gated on: dehumidifier off (mutual
-    #    exclusion), no humid grace, cooldown not active.
+    #    exclusion), no humid grace, and the DEHUMIDIFY cooldown not active (a
+    #    recent dehumidifier-off overshoot must clear first). Its OWN humidify
+    #    cooldown does not gate it — it re-engages at the low threshold.
     - conditions: >-
         {{ desired_humid and not humid_on and not dehum_on
-           and not humid_grace and not cooldown_active }}
+           and not humid_grace and not dehumidify_cd }}
       sequence:
       - action: input_boolean.turn_on
         target:

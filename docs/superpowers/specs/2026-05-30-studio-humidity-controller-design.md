@@ -177,6 +177,27 @@ grace window.
 - Confirm current `S` and `T` values. If `T` is only 1–2 %, widen the dead band on top of the
   cooldown so normal humidifier overshoot cannot reach the dehumidifier ON threshold.
 
+## Update — 2026-06-18: cross-device cooldown split
+
+The predicted failure above materialised. With `S = 42`, `T = 1.5` (tight band for the studio
+instruments) and sustained high outdoor humidity (~95 %), the dehumidifier ran hard and coasted
+~3 % below its OFF point (42 → ~39 %), reaching the humidifier ON threshold (`S − T = 40.5`);
+on the deepest dips the humidifier engaged and fought it. The single shared
+`timer.humidity_cooldown` also blocked the dehumidifier from *re-engaging*, so humidity drifted
+to ~46 % before it could act again — the room never held a tight 42 %.
+
+Rather than widen the band (which would loosen control and, seasonally, let the room sit away
+from 42 %), the cooldown was split into two **cross-device** timers:
+
+- `timer.dehumidify_cooldown` (30 min) — armed on dehumidifier OFF; blocks the **humidifier**.
+- `timer.humidify_cooldown` (30 min) — armed on humidifier OFF; blocks the **dehumidifier**.
+
+A device's own cooldown no longer gates that device — same-device cycling is bounded only by the
+tight `±T` band, so the dehumidifier re-engages at `S + T` (top stays ~44, not 46), while a
+turn-off overshoot has 30 min to recover before the opposite device may react. The tight band is
+preserved, which is what keeps the room near 42 % for the instruments. Covered by
+`tests/test_humidity_controller.py`.
+
 ## Out of scope
 
 - Office/room HVAC behavior (unchanged).
