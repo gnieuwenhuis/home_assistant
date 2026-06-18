@@ -1,18 +1,17 @@
-# Values copied from .storage/ on the HA host. The values here are
-# authoritative — if you change anything in the HA UI, mirror it here.
+# This file is merged into the HA config as a package — see the
+# `homeassistant: packages:` block in configuration.yaml. The values here are
+# authoritative; edit here, not in the UI.
 #
-# Migration steps (one-time, to start using this file):
-#   1. In Settings → Devices & services → Helpers, delete each of the
-#      helpers below. (UI-defined and YAML-defined helpers with the same
-#      entity_id will conflict.)
-#   2. Add these four lines to configuration.yaml (top level):
-#        input_number:  !include helpers.yaml
-#        input_boolean: !include helpers.yaml
-#        input_select:  !include helpers.yaml
-#        timer:         !include helpers.yaml
-#      (HA reads each top-level key from the included file.)
-#   3. From Developer Tools → YAML, reload "Input Number", "Input Boolean",
-#      "Input Select", and "Timer" — or restart HA.
+# One-time cutover (UI-defined → this file). Until both of these are done, the
+# UI helper and the YAML helper fight over the same entity_id (HA either skips
+# the YAML one or creates a `_2` duplicate):
+#   1. Deploy this file + the configuration.yaml package block to the host.
+#   2. In Settings → Devices & services → Helpers, delete every helper that is
+#      defined below (they're the UI copies of the same entity_ids).
+#   3. Restart HA so the package is loaded.
+# After cutover, an edit to this file applies via Developer Tools → YAML →
+# reload the affected domain (Input Number / Input Boolean / Input Select /
+# Timer), or a restart.
 #
 # Note on backup_heat: its UI-defined unique_id is `disable_heat_pump` but
 # the entity was renamed in the UI to `input_boolean.backup_heat` (which

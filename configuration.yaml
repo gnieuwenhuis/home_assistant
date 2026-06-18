@@ -9,6 +9,15 @@ automation: !include automations.yaml
 script: !include scripts.yaml
 scene: !include scenes.yaml
 
+# Helpers (input_number / input_boolean / input_select / timer) live in
+# helpers.yaml under version control instead of the UI. helpers.yaml keeps its
+# per-domain top-level keys, which is exactly the shape a package expects, so the
+# whole file merges in as one package. After editing helpers.yaml, reload the
+# affected domain from Developer Tools → YAML (or restart HA).
+homeassistant:
+  packages:
+    helpers: !include helpers.yaml
+
 neviweb130:
   username: !secret neviweb130_username
   password: !secret neviweb130_password

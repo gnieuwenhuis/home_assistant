@@ -56,9 +56,19 @@ Not vendored into this repo. If restoring from scratch, install HACS first, then
 
 ## Helpers migration
 
-`helpers.yaml` is committed with values copied verbatim from `.storage/` on the host, but is **not yet included** from `configuration.yaml` because the same helpers are still defined in the UI. To switch over, follow the migration steps at the top of `helpers.yaml`: delete the UI-defined helpers, add four `!include` lines (`input_number` / `input_boolean` / `input_select` / `timer`) to `configuration.yaml`, then reload from Developer Tools.
+`helpers.yaml` is wired into `configuration.yaml` as a **package**:
 
-Once that's done, `helpers.yaml` becomes the source of truth — edit there, not in the UI.
+```yaml
+homeassistant:
+  packages:
+    helpers: !include helpers.yaml
+```
+
+The whole file (its `input_number:` / `input_boolean:` / `input_select:` / `timer:` top-level keys) merges into the config in one shot — no per-domain `!include` lines, and the single-file shape is what `tests/conftest.py` loads, so it stays the source of truth for tests too. (Don't use `input_number: !include helpers.yaml` per-domain — that pastes all four domain keys under each domain and is invalid.)
+
+**Remaining one-time host cutover** (the repo side is done; until this runs, the UI-defined helper and the YAML helper collide on the same `entity_id`): deploy the files, then in Settings → Devices & services → Helpers **delete every helper that's defined in `helpers.yaml`** (the UI copies), then **restart HA** so the package loads.
+
+After cutover, `helpers.yaml` is the source of truth — edit there, not in the UI, and apply with a Developer Tools → YAML domain reload (Input Number / Input Boolean / Input Select / Timer) or a restart.
 
 The HVAC helpers (all in the same UI-defined-now, mirrored-in-`helpers.yaml` status):
 
