@@ -120,7 +120,7 @@ async def test_cold_studio_heats_studio_only(coordinator):
     assert not turned_on(calls, "switch.office_power")
     assert hass.states.get("input_select.system_hvac_mode").state == "heat"
     heat_calls = [c for c in calls["temp"] if c.data.get("hvac_mode") == "heat"]
-    assert heat_calls and heat_calls[0].data["temperature"] == 20  # heat_bound, no lead
+    assert heat_calls and heat_calls[0].data["temperature"] == 21.5  # studio heat_bound 20 + studio lead 1.5
 
 
 async def test_conflict_heating_wins_office_head_idle(coordinator):
@@ -191,7 +191,7 @@ async def test_drift_resends_target_without_toggle(coordinator):
     await hass.async_block_till_done()
     await run(hass)
     assert not turned_on(calls, "switch.studio_power")
-    assert any(c.data.get("temperature") == 20 for c in calls["temp"])  # heat_bound, no lead
+    assert any(c.data.get("temperature") == 21.5 for c in calls["temp"])  # studio heat_bound 20 + studio lead 1.5
 
 
 async def test_hot_rooms_cool_with_cool_target(coordinator):
@@ -208,6 +208,21 @@ async def test_hot_rooms_cool_with_cool_target(coordinator):
                    if "climate.studio" in _entities(c) and c.data.get("hvac_mode") == "cool"]
     assert office_cool and office_cool[0].data["temperature"] == 24  # cool_bound, no lead
     assert studio_cool and studio_cool[0].data["temperature"] == 23  # cool_bound, no lead
+
+
+async def test_heat_lead_is_asymmetric_office_zero_studio_positive(coordinator):
+    hass, calls = coordinator
+    # Both rooms cold → system heats, both heads on. Office (fast) is commanded
+    # its bound; studio (slow) is commanded its bound + 1.5 so the inverter commits.
+    await arrange(hass, office_temp=18, studio_temp=18)
+    await run(hass)
+    assert hass.states.get("input_select.system_hvac_mode").state == "heat"
+    office_heat = [c for c in calls["temp"]
+                   if "climate.office" in _entities(c) and c.data.get("hvac_mode") == "heat"]
+    studio_heat = [c for c in calls["temp"]
+                   if "climate.studio" in _entities(c) and c.data.get("hvac_mode") == "heat"]
+    assert office_heat and office_heat[0].data["temperature"] == 20    # office bound 20, lead 0
+    assert studio_heat and studio_heat[0].data["temperature"] == 21.5  # studio bound 20 + lead 1.5
 
 
 async def test_demand_drop_turns_head_off(coordinator):
