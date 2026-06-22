@@ -7,8 +7,9 @@
 # with a hysteresis differential past each bound), resolves a
 # single system-wide mode where heating wins any conflict, then
 # drives each head's power switch + climate target toward its
-# bound (a small lead past the bound keeps the inverter
-# committed). Short-cycle protection comes from per-head lockout
+# bound (a per-room heating lead — studio above the bound, office
+# at it — keeps the inverter committed; the baseboard sensor does
+# the real cutoff). Short-cycle protection comes from per-head lockout
 # timers and a heat<->cool minimum dwell that pins the active
 # mode. Master-off (input_boolean.hvac_enable off) and backup-
 # heat force both heads off. Every Cielo call is gated on a real
@@ -53,13 +54,18 @@
   - trigger: time_pattern
     minutes: /5
   variables:
-    # Command each head to the bound itself (no lead past it). The head's own
-    # sensor is unreliable and state-dependent (off: reads refrigerant-pipe temp
-    # driven by the other head; running: converges to room temp). Steering past
-    # the bound made a running head drive the room well past it (the over-cool
-    # yo-yo). At the bound, a running head eases off near the bound on its own,
-    # and the baseboard backstop (prompt turn-off) catches the startup transient.
-    lead: 0
+    # Per-room HEATING lead (cooling unaffected). The large/slow studio's onboard
+    # sensor reads warm (it sits in the return airflow), so commanding the bound
+    # itself leaves the inverter loafing and the room sags ~1 C under setpoint
+    # before the head commits. A positive heat lead opens enough setpoint error to
+    # make the inverter pull real capacity. This is SAFE because lead != cutoff:
+    # the real cutoff is room_demand against the reliable baseboard sensor at
+    # heat_bound + differential (studio 19.5), independent of the commanded
+    # setpoint — so a higher lead changes how hard the head pulls, NOT where it
+    # shuts off. The small/fast office holds fine, so it stays at its bound.
+    # Tuning knob: raise studio_heat_lead toward 2.0-2.5 if the studio still sags.
+    office_heat_lead: 0
+    studio_heat_lead: 1.5
     enabled: "{{ is_state('input_boolean.hvac_enable', 'on') }}"
     backup: "{{ is_state('input_boolean.backup_heat', 'on') }}"
     stored: "{{ states('input_select.system_hvac_mode') }}"
@@ -86,6 +92,10 @@
       {% from 'hvac.jinja' import resolve_mode %}
       {{- resolve_mode(office_demand, studio_demand) -}}
     effective: "{{ stored if (dwell_active and stored in ['heat', 'cool']) else resolved }}"
+    # Resolve the per-room lead now that `effective` (the active mode) is known:
+    # heat-only, so cooling/idle gets 0 and is unaffected.
+    office_lead: "{{ office_heat_lead if effective == 'heat' else 0 }}"
+    studio_lead: "{{ studio_heat_lead if effective == 'heat' else 0 }}"
     office_want_on: >-
       {{ (effective == 'heat' and office_demand == 'heat')
          or (effective == 'cool' and office_demand == 'cool') }}
@@ -95,10 +105,10 @@
     desired_hvac: "{{ 'heat' if effective == 'heat' else 'cool' if effective == 'cool' else '' }}"
     office_target_raw: >-
       {% from 'hvac.jinja' import head_target %}
-      {{- head_target(effective, office_hb, office_cb, lead) -}}
+      {{- head_target(effective, office_hb, office_cb, office_lead) -}}
     studio_target_raw: >-
       {% from 'hvac.jinja' import head_target %}
-      {{- head_target(effective, studio_hb, studio_cb, lead) -}}
+      {{- head_target(effective, studio_hb, studio_cb, studio_lead) -}}
     office_target: "{{ office_target_raw | float(0) }}"
     studio_target: "{{ studio_target_raw | float(0) }}"
     office_lockout: "{{ is_state('timer.office_head_lockout', 'active') }}"
