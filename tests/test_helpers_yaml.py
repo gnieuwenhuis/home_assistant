@@ -12,13 +12,27 @@ async def test_room_bounds_exist(hass_helpers):
     ):
         s = hass_helpers.states.get(ent)
         assert s is not None, ent
-        assert s.attributes["min"] == 15
+        assert s.attributes["min"] == 17
         assert s.attributes["max"] == 30
 
 
 async def test_differentials_exist(hass_helpers):
     assert hass_helpers.states.get("input_number.office_temp_differential") is not None
     assert hass_helpers.states.get("input_number.studio_temp_differential") is not None
+
+
+async def test_unwritten_helpers_have_initial(hass_helpers):
+    # Nothing writes these at runtime, so `initial:` is the only thing standing
+    # between a rebuild-from-repo and every one of them landing at `min`.
+    for ent, initial in (
+        ("input_number.office_temp_differential", 1.0),
+        ("input_number.studio_temp_differential", 0.5),
+        ("input_number.humidity_set_point", 42),
+        ("input_number.humidity_tolerance", 1.5),
+    ):
+        s = hass_helpers.states.get(ent)
+        assert s is not None, ent
+        assert float(s.state) == initial, ent
 
 
 async def test_system_hvac_mode_options(hass_helpers):

@@ -106,7 +106,7 @@ climate:
     modes:
       - "off"
       - "heat_cool"
-    min_temp: 15
+    min_temp: 17
     max_temp: 30
     temp_step: 0.5
     current_temperature_template: "{{ states('sensor.office_baseboard_current_temperature') }}"
@@ -139,7 +139,7 @@ climate:
     modes:
       - "off"
       - "heat_cool"
-    min_temp: 15
+    min_temp: 17
     max_temp: 30
     temp_step: 0.5
     current_temperature_template: "{{ states('sensor.studio_baseboard_current_temperature') }}"

@@ -28,9 +28,9 @@
 
 {# head_target: the temperature to command a head, a small `lead` past the
    active bound so the inverter stays committed (the coordinator does the real
-   cutoff against the reliable room sensor). Clamped to [17, 30]; bounds use
-   0.5 steps and `lead` is an integer, so results land on 0.5 increments (no
-   rounding needed). Empty for a non-active mode. #}
+   cutoff against the reliable room sensor). Clamped to [17, 30]. Bounds step
+   by 0.5 and leads are set on 0.5 steps, so results land on 0.5 increments —
+   keep `lead` a multiple of 0.5. Empty for a non-active mode. #}
 {% macro head_target(mode, heat_bound, cool_bound, lead) -%}
   {%- set l = lead | float -%}
   {%- if mode == 'heat' -%}

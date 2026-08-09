@@ -24,6 +24,7 @@ input_number:
     min: 0
     max: 100
     step: 1
+    initial: 42
     mode: box
     unit_of_measurement: "%"
     icon: mdi:water-percent
@@ -32,14 +33,20 @@ input_number:
     name: Humidity Tolerance
     min: 0
     max: 100
-    step: 1
+    step: 0.5
+    initial: 1.5
     mode: box
     unit_of_measurement: "%"
     icon: mdi:water-percent
 
+  # The four bounds carry no `initial:` — the thermostat facade writes them at
+  # runtime via input_number.set_value, and `initial:` short-circuits restore on
+  # every restart and every reload, reverting whatever the user dialed in.
+  # min matches the head_target clamp floor in custom_templates/hvac.jinja: a
+  # cool_bound below it can never be reached, so cooling demand never clears.
   office_heat_bound:
     name: Office Heat Bound
-    min: 15
+    min: 17
     max: 30
     step: 0.5
     mode: slider
@@ -47,7 +54,7 @@ input_number:
     icon: mdi:thermometer-chevron-down
   office_cool_bound:
     name: Office Cool Bound
-    min: 15
+    min: 17
     max: 30
     step: 0.5
     mode: slider
@@ -55,7 +62,7 @@ input_number:
     icon: mdi:thermometer-chevron-up
   studio_heat_bound:
     name: Studio Heat Bound
-    min: 15
+    min: 17
     max: 30
     step: 0.5
     mode: slider
@@ -63,7 +70,7 @@ input_number:
     icon: mdi:thermometer-chevron-down
   studio_cool_bound:
     name: Studio Cool Bound
-    min: 15
+    min: 17
     max: 30
     step: 0.5
     mode: slider
@@ -74,6 +81,7 @@ input_number:
     min: 0
     max: 3
     step: 0.1
+    initial: 1.0
     mode: box
     unit_of_measurement: "°C"
     icon: mdi:arrow-expand-vertical
@@ -82,6 +90,7 @@ input_number:
     min: 0
     max: 3
     step: 0.1
+    initial: 0.5
     mode: box
     unit_of_measurement: "°C"
     icon: mdi:arrow-expand-vertical
@@ -114,10 +123,10 @@ timer:
   # Cross-device cooldowns: each is armed when its OWN device turns off and
   # blocks the OPPOSITE device's turn-on, so a turn-off overshoot recovers
   # before the other device reacts. A device's own cooldown never blocks that
-  # same device re-engaging — the tight ±tolerance band governs same-device
-  # cycling — so the dehumidifier re-engages at its high threshold instead of
-  # drifting up while a single shared cooldown runs. 30 min outlasts the
-  # observed overshoot recovery under high outdoor humidity.
+  # same device re-engaging — each device's own tolerance-wide hold region
+  # governs same-device cycling — so the dehumidifier re-engages at its high
+  # threshold instead of drifting up. 30 min outlasts the observed overshoot
+  # recovery under high outdoor humidity.
   dehumidify_cooldown:
     name: Dehumidify Cooldown
     duration: "00:30:00"

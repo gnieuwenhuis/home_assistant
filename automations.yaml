@@ -12,8 +12,10 @@
 # the real cutoff). Short-cycle protection comes from per-head lockout
 # timers and a heat<->cool minimum dwell that pins the active
 # mode. Master-off (input_boolean.hvac_enable off) and backup-
-# heat force both heads off. Every Cielo call is gated on a real
-# desired-vs-current delta so no redundant API writes are made.
+# heat force both heads off. Cielo calls are gated per branch on
+# a real desired-vs-current delta; the off->on branch's
+# set_temperature rides the turn_on ungated, because the climate
+# snapshot in `variables:` predates the power-on.
 # ============================================================
 
 - id: hvac_coordinator
@@ -23,7 +25,9 @@
     both rooms' two-setpoint demand (heating wins conflicts), then drives each
     head on/off toward its bounds. Short-cycle protected by per-head lockout
     timers and a heat<->cool dwell. Master-off / backup-heat force both heads
-    off. Every Cielo call gated on a real desired-vs-current delta.
+    off. Cielo calls gated per branch on a real desired-vs-current delta; the
+    off->on branch's set_temperature rides the turn_on so the newly powered head
+    lands in the right mode and target.
   triggers:
   - trigger: state
     entity_id:
@@ -243,11 +247,13 @@
 # ============================================================
 # Backup heat
 # ------------------------------------------------------------
-# Heat pumps lose efficiency below -12 °C. When the outdoor
-# temperature drops, disable heat-pump heating and fall back
-# to the Sinopé baseboard heaters at the room's preferred
-# temperature; reverse when it warms up (baseboards drop 2.5
-# °C below preferred so the heat pump takes over).
+# Heat pumps lose efficiency below -12 °C. Below that outdoor
+# temperature input_boolean.backup_heat goes on — the
+# coordinator reads it as a force-off for both heads — and the
+# Sinopé baseboards carry the load at the room's comfort
+# midpoint (heat_bound + cool_bound) / 2. Above it, the
+# baseboards sit at heat_bound - 2.5 °C, under the heat pump's
+# own heat bound, so the pump takes primary duty.
 # ============================================================
 
 - id: '1756873917108'
@@ -275,15 +281,15 @@
       entity_id: climate.neviweb130_climate_th1123wf
     data:
       temperature: >-
-        {{ ((states('input_number.office_heat_bound') | float
-             + states('input_number.office_cool_bound') | float) / 2) | round(0) }}
+        {{ (states('input_number.office_heat_bound') | float
+            + states('input_number.office_cool_bound') | float) / 2 }}
   - action: climate.set_temperature
     target:
       entity_id: climate.neviweb130_climate_th1124wf
     data:
       temperature: >-
-        {{ ((states('input_number.studio_heat_bound') | float
-             + states('input_number.studio_cool_bound') | float) / 2) | round(0) }}
+        {{ (states('input_number.studio_heat_bound') | float
+            + states('input_number.studio_cool_bound') | float) / 2 }}
   - action: notify.notification_group
     data:
       message: Heat Pump Heating is Disabled, Baseboard Heat is Being Used
@@ -331,9 +337,10 @@
 # and dehumidifier from the current humidity level (it replaced
 # four edge-triggered on/off automations). It:
 #   - never lets both run at once (mutual-exclusion safety),
-#   - forces a 15-min relaxation cooldown after a controller
-#     turn-off before the opposite device may start (stops the
-#     overshoot ping-pong), and
+#   - arms a 30-min cooldown when it turns a device off, which
+#     blocks the OPPOSITE device from starting (never its own),
+#     so a turn-off overshoot recovers before the other device
+#     reacts, and
 #   - respects a manual switch flip for 15 min before resuming.
 # Hysteresis around input_number.humidity_set_point with
 # input_number.humidity_tolerance:
@@ -390,7 +397,8 @@
     # Cross-device cooldowns: dehumidify_cd (armed on dehum OFF) gates the
     # HUMIDIFIER on; humidify_cd (armed on humid OFF) gates the DEHUMIDIFIER on.
     # A device's own cooldown never gates itself — same-device cycling is bounded
-    # by the tight ±tolerance band, so the active device re-engages promptly.
+    # by its own tolerance-wide hold region, so the active device re-engages
+    # promptly.
     dehumidify_cd:   "{{ is_state('timer.dehumidify_cooldown', 'active') }}"
     humidify_cd:     "{{ is_state('timer.humidify_cooldown', 'active') }}"
     dehum_grace:     "{{ is_state('timer.dehumidifier_manual_grace', 'active') }}"
