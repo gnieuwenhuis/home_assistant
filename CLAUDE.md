@@ -15,6 +15,7 @@ Tracked:
 - `tests/`, `pytest.ini`, `requirements-dev.txt` — pytest harness (see "Tests")
 - `helpers.yaml` — `input_number` / `input_boolean` / `input_select` / `timer` definitions; wired into `configuration.yaml` as a package (see "Helpers migration" below)
 - `secrets.yaml.example` — placeholder showing which `!secret` keys must exist
+- `.env.example` — placeholder for the repo-root `.env` (see "Live Home Assistant API access")
 - `docs/superpowers/specs/`, `docs/superpowers/plans/` — design docs and implementation plans (see below)
 - `README.md` — human-facing overview of the space and the control model; its **Troubleshooting** section indexes the states that look like faults but aren't (timers mid-run, the mode helper vs. a running head, the coordinator short-circuiting on an unavailable entity) — start there when a symptom is reported
 - `blueprints/` — HA's stock shipped blueprints, untouched
@@ -29,6 +30,7 @@ checkbox state is not a to-do signal. The changeover advisor
 Not tracked — the entries that matter (see `.gitignore` for the full list):
 
 - `secrets.yaml` — real credentials. Commit only the `.example`.
+- `.env` — holds `HOME_ASSISTANT_TOKEN`, a live admin-scoped credential. Commit only the `.example`. Distinct from `secrets.yaml`: `secrets.yaml` feeds `!secret` lookups on the HA host, `.env` is read by tooling on *this* machine and HA never sees it.
 - `home-assistant.log*`, `home-assistant_v2.db*`, `.HA_VERSION`, `.uuid`, `deps/`, `tts/`, `image/`, `.cloud/` — HA runtime artifacts
 - `.storage/` — HA's internal state store; rewritten constantly, and `.storage/auth*` holds tokens
 - `themes/` — the stock `frontend: themes:` include in `configuration.yaml`. Absent here and on a fresh HA install alike: `!include_dir_merge_named` on a missing directory loads as `{}` with no error or warning.
@@ -69,6 +71,70 @@ files to the HA instance and reloading: `automation.reload` for
 an edited macro keeps rendering its old body, silently and with no error, until
 that service runs. `homeassistant.reload_all` covers all three (it aborts if the
 config is invalid).
+
+## Live Home Assistant API access
+
+A Home Assistant **long-lived access token** is available to agents in `.env` at
+the repo root, under the key `HOME_ASSISTANT_TOKEN`. The file is gitignored;
+`.env.example` is the tracked template. The base URL is **not** in `.env` — it is
+`http://homeassistant.local:8123`. Token generation is documented for humans in
+README.md ("Talking to the live Home Assistant").
+
+Load it into the environment rather than interpolating it into a command, so the
+value stays out of transcripts, logs, and shell history:
+
+```sh
+set -a; . ./.env; set +a
+curl -s -H "Authorization: Bearer $HOME_ASSISTANT_TOKEN" \
+  http://homeassistant.local:8123/api/states/input_select.system_hvac_mode
+```
+
+Never `cat` or `echo` `.env`, never copy the token into a file, a commit, or a
+message to the user, and never send it anywhere other than
+`homeassistant.local`. To confirm the key is present without revealing it, grep
+for the key name.
+
+**This reaches the real house.** The entities behind this API are physical
+hardware — two heat-pump heads on a shared compressor, two baseboards, two Tuya
+plugs. Reads are free; writes move equipment.
+
+**Read without asking:**
+
+- `GET /api/states/<entity_id>` — one entity's state and attributes
+- `GET /api/states` — everything (large; prefer a specific entity)
+- `GET /api/config` — HA version, and whether it is `RUNNING`
+- `GET /api/history/period/<ISO8601>?filter_entity_id=<entity_id>` — how a value actually moved, which is how to check a tuning claim
+- `GET /api/logbook/<ISO8601>?entity=<entity_id>` — coordinator runs, head toggles, and timer arms in order, for reconstructing a short-cycle or a flap
+- `POST /api/template` with `{"template": "..."}` — renders against live state
+
+The two time-series endpoints spell their filter differently — `filter_entity_id`
+for history, **`entity`** for logbook — and each ignores the other's spelling
+silently instead of erroring, returning the whole instance. A logbook response
+far larger than the entity could produce means the filter was dropped, not that
+the entity was busy. (`/api/error_log` does not exist on this version; it 404s.)
+
+`POST /api/template` is the highest-value one here: it is the only way to
+evaluate a `custom_templates/hvac.jinja` macro against real sensor values
+without deploying. It renders and returns; it changes nothing. It renders from
+HA's **in-memory** copy of the macros, so it reports what the live instance
+currently does, not what an edited working-tree file says.
+
+**Ask the user before any of these**, every time — approval for one does not
+carry to the next:
+
+- `POST /api/services/<domain>/<service>` — covers the reload services, which
+  deploy config changes, and any `climate.*` / `switch.*` call, which commands
+  hardware
+- `POST /api/states/<entity_id>` — overwrites HA's stored state, desynchronizing
+  it from the device until the integration next polls
+
+Deploying stays a manual step (see "Tests"): this repo is not auto-deployed, and
+an agent-issued `homeassistant.reload_all` would quietly make it so.
+
+A `401` means the token was revoked or replaced — the fix is a new token from the
+HA UI, not a retry. A connection failure means the box is unreachable from this
+network; treat live inspection as unavailable and fall back to the test suite
+rather than working around it.
 
 ## Custom integrations (HACS)
 
