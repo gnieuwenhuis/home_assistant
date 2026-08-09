@@ -159,7 +159,7 @@ homeassistant:
 
 The whole file (its `input_number:` / `input_boolean:` / `input_select:` / `timer:` top-level keys) merges into the config in one shot — no per-domain `!include` lines, and the single-file shape is what `tests/conftest.py` loads, so it stays the source of truth for tests too. (Don't use `input_number: !include helpers.yaml` per-domain — that pastes all four domain keys under each domain and is invalid.)
 
-The one-time host cutover — deleting the UI-defined copies of these helpers under Settings → Devices & services → Helpers so they stop colliding with the package's entity IDs, then restarting HA to load the package — is complete. `helpers.yaml` is the source of truth — edit there, not in the UI, and apply with a Developer Tools → YAML domain reload (Input Number / Input Boolean / Input Select / Timer) or a restart.
+`helpers.yaml` is the sole source of truth for these entities; no UI-defined copies compete for their entity IDs. Edit there, not in the UI, and apply with a Developer Tools → YAML domain reload (Input Number / Input Boolean / Input Select / Timer) or a restart.
 
 The HVAC helpers, all defined in `helpers.yaml`:
 
