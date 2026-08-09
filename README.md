@@ -184,6 +184,7 @@ re-read the file and raises no error — the old macro just keeps running. Call
 | `custom_templates/hvac.jinja` | The pure decision logic for the coordinator (heat/cool/idle), unit-tested |
 | `helpers.yaml` | The input numbers / booleans / timers (bounds, master switch, etc.) |
 | `tests/` | `pytest` suite covering the control logic |
+| `.env.example` | Template for the gitignored `.env` holding your Home Assistant API token |
 | `docs/superpowers/specs/` | Dated design docs, oldest first. Start with `2026-06-15-ecobee-style-hvac-design.md`; it supersedes the earlier changeover-advisor and steering-loop designs. |
 | `docs/superpowers/plans/` | Implementation plans, one per design — all six are merged. This is a history, not a queue; the `- [ ]` boxes were never ticked and mean nothing. Do not re-execute one. |
 | `CLAUDE.md` | Conventions and guidance for working in this repo |
@@ -205,6 +206,64 @@ uv venv .venv --python 3.14 --seed
 ```
 
 See `CLAUDE.md` for the full setup, conventions, and the helper-migration notes.
+
+## Talking to the live Home Assistant
+
+The test suite covers the control logic in isolation, but some questions only the
+running system can answer — what a sensor actually reads right now, how a
+temperature moved overnight, what a `custom_templates/hvac.jinja` macro renders
+to against live state. Home Assistant exposes all of that over a REST API at
+`http://homeassistant.local:8123`, authenticated with a **long-lived access
+token**.
+
+The token is per-person, not shared: generate your own, and revoke it when you
+stop working on this.
+
+### Generating a token
+
+1. Open `http://homeassistant.local:8123` and sign in.
+2. Click your user name at the bottom of the sidebar to open your profile.
+3. Go to the **Security** tab.
+4. Scroll to **Long-lived access tokens** and click **Create token**.
+5. Name it after the machine you'll use it from, so it can be revoked
+   individually later.
+6. **Copy the token immediately.** Home Assistant displays it exactly once; if
+   you close the dialog without copying, delete it and create another.
+
+A token inherits the permissions of the account that created it — one made from
+an admin account can do anything you can do in the UI. It stays valid for ten
+years unless you revoke it, which is done from that same screen.
+
+### Storing it
+
+Copy `.env.example` to `.env` in the repo root and paste the token in:
+
+```sh
+cp .env.example .env
+$EDITOR .env          # set HOME_ASSISTANT_TOKEN=...
+```
+
+`.env` is gitignored, like `secrets.yaml`. The two are not interchangeable:
+`secrets.yaml` lives on the Home Assistant host and fills in `!secret` lookups in
+`configuration.yaml`, while `.env` never leaves your machine and only
+authenticates API calls made from here.
+
+Confirm it works — this reads the coordinator's current resolved mode and changes
+nothing:
+
+```sh
+set -a; . ./.env; set +a
+curl -s -H "Authorization: Bearer $HOME_ASSISTANT_TOKEN" \
+  http://homeassistant.local:8123/api/states/input_select.system_hvac_mode
+```
+
+A `401` means the token is wrong or revoked. No response at all means the box
+isn't reachable from your network.
+
+AI coding agents working in this repo read the same `.env`. They inspect state
+freely and ask before calling any service, since a service call either commands
+real hardware or deploys config; [`CLAUDE.md`](CLAUDE.md) has the exact rule and
+the useful endpoints.
 
 ## If you found this and want to reuse it
 
