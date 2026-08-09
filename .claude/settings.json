@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/check_new_comments.py\"",
+            "timeout": 15,
+            "statusMessage": "Checking comment conventions..."
+          }
+        ]
+      }
+    ]
+  }
+}

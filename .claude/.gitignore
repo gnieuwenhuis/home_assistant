@@ -1,0 +1,36 @@
+# Ignore everything by default
+*
+
+# Track these directories and their contents
+!agents/
+!agents/**
+!commands/
+!commands/**
+!hooks/
+!hooks/**
+!rules/
+!rules/**
+!skills/
+!skills/README.md
+!skills/decision-critic/
+!skills/decision-critic/**
+!skills/doc-sync/
+!skills/doc-sync/**
+!skills/incoherence/
+!skills/incoherence/**
+!skills/prompt-engineer/
+!skills/prompt-engineer/**
+!skills/refactor/
+!skills/refactor/**
+
+# Track root files
+!README.md
+!LICENSE
+!.gitignore
+!settings.json
+
+# Always ignore these, even in tracked directories
+.DS_Store
+**/.DS_Store
+
+**/__pycache__
