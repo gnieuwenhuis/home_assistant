@@ -16,7 +16,7 @@ Tracked:
 - `helpers.yaml` — `input_number` / `input_boolean` / `input_select` / `timer` definitions; wired into `configuration.yaml` as a package (see "Helpers migration" below)
 - `secrets.yaml.example` — placeholder showing which `!secret` keys must exist
 - `docs/superpowers/specs/`, `docs/superpowers/plans/` — design docs and implementation plans (see below)
-- `README.md` — human-facing overview of the space and the control model
+- `README.md` — human-facing overview of the space and the control model; its **Troubleshooting** section indexes the states that look like faults but aren't (timers mid-run, the mode helper vs. a running head, the coordinator short-circuiting on an unavailable entity) — start there when a symptom is reported
 - `blueprints/` — HA's stock shipped blueprints, untouched
 - `.gitignore` — the exclusion list the next section summarizes
 
