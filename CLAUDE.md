@@ -121,7 +121,7 @@ Independent of the HVAC loop, both in the **studio**: dehumidifier plug `2c14c57
 
 The control model is **two setpoints per room** — an ecobee, not a single preferred temperature with a swing. Per room the user sets `input_number.<room>_heat_bound` (lower; below it the room wants heat) and `input_number.<room>_cool_bound` (upper; above it the room wants cool). The room floats freely in the dead band between the two bounds. There is no `preferred` and no symmetric `swing`. Where a single comfort value is needed (the backup-heat baseboard target) it is the derived **comfort midpoint** `(heat_bound + cool_bound) / 2`.
 
-Because the two heads share one outdoor compressor (a multi-split), **heat vs cool is a single system-wide decision** — both heads must be in the same mode at any instant, though either can independently idle. So the old per-room controllers are replaced by **one** `hvac_coordinator` automation (one automation for one physical compressor). Its decision macros live in `custom_templates/hvac.jinja` (pure, unit-tested):
+Because the two heads share one outdoor compressor (a multi-split), **heat vs cool is a single system-wide decision** — both heads must be in the same mode at any instant, though either can independently idle. So a single `hvac_coordinator` automation owns both heads — one automation per physical compressor, because per-room controllers cannot express a shared-compressor constraint. Its decision macros live in `custom_templates/hvac.jinja` (pure, unit-tested):
 
 - `room_demand(temp, heat_bound, cool_bound, differential, current)` → `heat` / `cool` / `none` for one room, using its reliable temperature `sensor.<room>_baseboard_current_temperature` and a hysteresis differential.
 - `resolve_mode(office_demand, studio_demand)` → one system mode, `heat` / `cool` / `idle`, with **heating wins** conflicts: if either room wants heat the whole system heats; cooling runs only when neither room wants heat; a too-warm room whose mode is forbidden simply idles its head.
@@ -151,9 +151,9 @@ Two automations share one threshold: `'1756873917108'` turns `input_boolean.back
 A single state-driven controller (`studio_humidity_controller` in `automations.yaml`)
 reconciles the dehumidifier plug (`switch.studio_dehumidifier_socket_1`) and humidifier plug
 (`switch.studio_humidifier_socket_1`) from the current reading of the shared Zigbee humidity
-sensor — the same reconcile-on-delta pattern as the HVAC controllers. It replaced four
-edge-triggered on/off automations that could strand a device (and run both at once) when a
-threshold crossing was missed.
+sensor — the same reconcile-on-delta pattern as the HVAC controllers. Reconciling from the
+current reading rather than from threshold-crossing edges is what makes a missed crossing
+harmless: an edge-triggered design strands a device on, and can leave both running.
 
 Asymmetric hysteresis around `input_number.humidity_set_point` with
 `input_number.humidity_tolerance`:
