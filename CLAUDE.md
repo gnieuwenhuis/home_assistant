@@ -88,7 +88,7 @@ Each room has:
 1. A **Sinopé Wi-Fi baseboard heater** via the `neviweb130` integration — `climate.neviweb130_climate_th1123wf` (office) / `th1124wf` (studio). Provides `current_temperature`, `hourly_kwh`, and in cold-weather backup mode actually does the heating.
 2. A **heat-pump head** (mini-split) controlled via the `cielo_home` HACS integration. Each unit exposes both a `climate` entity (`climate.office`, `climate.studio`) and a power `switch` (`switch.office_power`, `switch.studio_power`) — same physical device, two entities. The HVAC coordinator references these by entity name (`climate.office` / `climate.studio` for the climate side; `switch.office_power` / `switch.studio_power` for the power switch). The two heads share **one outdoor compressor** — a multi-split — so they can never run in opposite modes at the same time (see below).
 
-Independent of the rooms: dehumidifier plug `ab8b624cc66726276f8c0a35c7903c9f` and humidifier plug `60211ed7b46e92fd6dcadf60d8087fd0` share one Zigbee humidity sensor.
+Independent of the rooms: dehumidifier plug `2c14c57df022faaf9f89c6390df4173f` and humidifier plug `60211ed7b46e92fd6dcadf60d8087fd0` share one Zigbee humidity sensor. Both are Tuya "Mini Plug" units on the Tuya cloud integration. The dehumidifier plug was replaced on 2026-08-09 after its relay failed — it began closing on its own (self-initiated `on` events with no controller command) and finally passed current with the switch commanded open. The retired unit was device `ab8b624cc66726276f8c0a35c7903c9f` / `switch.mini_plug_4_socket_1`; a compressor is an inductive load and these plugs' relays are the weak point, so treat a repeat of that signature as hardware, not logic.
 
 ### The ecobee-style HVAC coordinator
 
@@ -122,7 +122,7 @@ When `sensor.lethbridge_temperature < −12 °C` for 20 minutes, `input_boolean.
 ### Humidity (independent of HVAC)
 
 A single state-driven controller (`studio_humidity_controller` in `automations.yaml`)
-reconciles the dehumidifier plug (`switch.mini_plug_4_socket_1`) and humidifier plug
+reconciles the dehumidifier plug (`switch.studio_dehumidifier_socket_1`) and humidifier plug
 (`switch.studio_humidifier_socket_1`) from the current reading of the shared Zigbee humidity
 sensor — the same reconcile-on-delta pattern as the HVAC controllers. It replaced four
 edge-triggered on/off automations that could strand a device (and run both at once) when a

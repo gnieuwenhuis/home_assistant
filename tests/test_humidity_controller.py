@@ -24,7 +24,7 @@ import pytest
 
 from tests.conftest import REPO_ROOT
 
-DEHUM = "switch.mini_plug_4_socket_1"
+DEHUM = "switch.studio_dehumidifier_socket_1"
 HUMID = "switch.studio_humidifier_socket_1"
 HUM_SENSOR = "sensor.tz3000_utwgoauk_snzb_02_humidity"
 
