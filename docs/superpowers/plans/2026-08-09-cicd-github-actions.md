@@ -752,21 +752,28 @@ containing `deletion`, `non_fast_forward`, `required_linear_history`,
 
 - [ ] **Step 5: Prove the gate binds**
 
-Confirm a direct push to `main` is now refused. Do this **without switching
-branches** — the work is happening in a worktree, and checking out `main` here
-would move the worktree off its own branch:
+Confirm a direct push to `main` is now refused. The probe has to be a genuine
+**fast-forward** of `main`, or the answer is worthless: Task 5 Step 4 merged
+with `--squash --delete-branch`, so this branch head is not an ancestor of
+`main` and pushing it is refused by the pre-existing `non_fast_forward` rule
+whether or not the new rules apply. Build one commit on top of `origin/main` in
+detached HEAD: no branch moves, and `git checkout -` puts the worktree back on
+the branch it was on:
 
 ```bash
+git fetch origin
+git checkout --detach origin/main
+git commit --allow-empty -m "ruleset probe"
 git push origin HEAD:main
+git checkout -
 ```
 
-This attempts to fast-forward `main` to the current branch head without
-touching any local branch.
+Expected on the push: **rejected**, with a message naming the ruleset —
+typically `Changes must be made through a pull request`. The probe commit is
+discarded by `git checkout -`; it never reaches a branch.
 
-Expected: **rejected**, with a message naming the ruleset — typically
-`Changes must be made through a pull request`.
-
-If the push *succeeds*, the bypass is still `always`. Undo it immediately:
+If the push *succeeds*, the bypass is still `always` and the probe commit is
+now the head of `main`. Undo it immediately:
 
 ```bash
 git push --force-with-lease origin <sha-from-step-1>:main
@@ -873,12 +880,12 @@ The live system has `timer.dehumidify_cooldown` at exactly the 30 minutes
 package is loaded and the cutover is done.
 
 **Verify against the live instance before editing.** This is a read-only API
-call, which `CLAUDE.md` permits without asking. The token lives in the **main
-checkout's** `.env`, not this worktree — `.env` is gitignored, so it is not
-present here:
+call, which `CLAUDE.md` permits without asking. `.env` is gitignored, so it
+exists only in the **main checkout** — run this from there, not from a
+worktree:
 
 ```bash
-set -a; . /Users/gregn/Documents/office/.env; set +a
+set -a; . "$(git rev-parse --show-toplevel)/.env"; set +a
 curl -s -H "Authorization: Bearer $HOME_ASSISTANT_TOKEN" \
   http://homeassistant.local:8123/api/states \
   | python3 -c "
@@ -907,7 +914,7 @@ are gone.
 
 If duplicates appear or a timer is `MISSING`, the cutover is genuinely
 outstanding: **skip this step, leave `CLAUDE.md` alone**, and report it — the
-plan's Task 8 Step 3 handles completing the cutover on the host.
+plan's Task 8 Step 4 handles completing the cutover on the host.
 
 Once verified, replace the "Remaining one-time host cutover" paragraph with a
 statement that the cutover is complete and `helpers.yaml` is authoritative,
@@ -960,20 +967,55 @@ every later step.
 
 - [ ] **Step 2: Inventory local drift before overwriting it**
 
-Over SSH (or the Terminal add-on), from `/config`:
-
-```bash
-cd /config
-ls -la
-```
-
 The first checkout replaces every tracked file with `main`'s version. `63dda20`
 changed `configuration.yaml` (`min_temp` 15→17) and `helpers.yaml` (bound
 minimums, `initial:` values); if those were never synced they land now, in one
-restart, along with everything else. Copy anything hand-edited that you want to
-keep somewhere outside `/config` first.
+restart, along with everything else. Drift is *likely*, and a hand-edited line
+in `automations.yaml` is invisible to a directory listing — the only recovery
+from overwriting it unseen is the Step 1 backup.
 
-- [ ] **Step 3: Verify the helpers cutover is complete**
+So attach git to `/config` without letting it touch the working tree, and read
+the diff. Over SSH (or the Terminal add-on):
+
+```bash
+cd /config
+git init
+git remote add origin https://github.com/gnieuwenhuis/home_assistant_config.git
+git fetch origin
+git reset origin/main          # index + HEAD only; the working tree is untouched
+git diff --stat -- automations.yaml helpers.yaml configuration.yaml
+git status --short --untracked-files=normal | grep '^??'
+```
+
+`git reset` without `--hard` moves `HEAD` and the index only, so at this point
+every file on the box is still exactly as it was. The `diff --stat` is the real
+drift inventory — a hand-edited line shows up here and nowhere else.
+
+The `??` listing is long, and expected to be: `.gitignore` is not on disk yet
+either, so the runtime artifacts it would exclude (`home-assistant_v2.db*`,
+the logs, `.storage/`, `deps/`) are listed alongside `secrets.yaml` and
+`custom_components/`. What matters is that nothing in it is a config file you
+meant to keep.
+
+Review both. Copy anything hand-edited that you want to keep somewhere outside
+`/config`, and fold it back in through a pull request afterwards — not by
+re-editing the box, which the add-on will revert.
+
+- [ ] **Step 3: Confirm the untracked files survived the attachment**
+
+```bash
+ls -la /config/secrets.yaml /config/.storage /config/custom_components
+```
+
+All three must exist, and all three must have appeared in Step 2's `??` list.
+Untracked is what protects them: `git checkout -f .` restores tracked paths and
+leaves everything else alone. Checking now, while nothing has been overwritten,
+is what makes this a precaution rather than a post-mortem. If one is missing, or
+if `git ls-files -- secrets.yaml .storage custom_components` prints anything,
+stop — `main` and this box disagree about what is ignored, and the checkout
+would overwrite it.
+
+- [ ] **Step 4: Verify the helpers cutover is complete**
 
 Two checks, both must pass:
 
@@ -986,27 +1028,29 @@ If either turns up, the cutover is genuinely outstanding: delete the UI copies
 and restart before continuing. A UI helper and a YAML helper competing for one
 `entity_id` is exactly the collision the package migration was meant to end.
 
-- [ ] **Step 4: Make `/config` a checkout of `main`**
+- [ ] **Step 5: Make `/config` a checkout of `main`**
+
+Only once Steps 2 and 3 are reviewed and anything wanted is saved. This is the
+irreversible line: it overwrites every tracked file with `main`'s version.
 
 ```bash
 cd /config
-git init
-git remote add origin https://github.com/gnieuwenhuis/home_assistant_config.git
-git fetch origin
-git checkout -f -b main origin/main
+git checkout -f .
+git branch -M main
 ```
 
-Then confirm nothing untracked was destroyed:
+The remote, the fetch and `HEAD` are already in place from Step 2, so this is
+the overwrite and nothing else: `checkout -f .` takes the working tree to the
+`origin/main` already in `HEAD`, and `branch -M main` names the branch the
+add-on will track.
+
+Then confirm the untracked files Step 3 listed are still there:
 
 ```bash
 ls -la /config/secrets.yaml /config/.storage /config/custom_components
 ```
 
-All three must still exist. They are gitignored, so `checkout -f` cannot touch
-them — this is a verification that the `.gitignore` assumption held, not a
-formality.
-
-- [ ] **Step 5: Restart HA and confirm it comes back**
+- [ ] **Step 6: Restart HA and confirm it comes back**
 
 Developer Tools → Actions → `homeassistant.restart`.
 
@@ -1017,7 +1061,7 @@ Wait for the UI to return, then confirm in Developer Tools → States:
 
 If HA does not come back, restore the Step 1 backup.
 
-- [ ] **Step 6: Install and configure the Git pull add-on**
+- [ ] **Step 7: Install and configure the Git pull add-on**
 
 Settings → Add-ons → Add-on Store → **Git pull** → Install. Then in its
 Configuration tab:
@@ -1047,9 +1091,9 @@ repeat:
 ```
 
 Start the add-on, then read its log. Expected: a successful fetch and "nothing
-to do" — `/config` already matches `main` from Step 4.
+to do" — `/config` already matches `main` from Step 5.
 
-- [ ] **Step 7: End-to-end verification with a harmless change**
+- [ ] **Step 8: End-to-end verification with a harmless change**
 
 From this machine, open a PR changing only `README.md` (a typo fix is ideal),
 let CI pass, and squash-merge it.
@@ -1062,13 +1106,32 @@ and does **not** restart Home Assistant, because `README.md` is in
 This proves the pull path works before a restart-triggering change ever
 depends on it.
 
-- [ ] **Step 8: Confirm a config change does restart**
+- [ ] **Step 9: Confirm a config change does restart**
 
-Only when Step 7 has passed. Make a genuinely trivial `automations.yaml`
+Only when Step 8 has passed. Make a genuinely trivial `automations.yaml`
 change — reword a comment, nothing behavioural — and merge it.
 
 Expected: the add-on pulls and restarts HA. Confirm afterwards that both
 coordinators are `on` and the studio's bounds survived.
+
+- [ ] **Step 10: Delete the "not active yet" caveats**
+
+The documentation Task 7 landed describes this deployment model as pending,
+because until Step 9 passes it is. Now it is running, and the caveats are the
+thing that misleads. Remove all three, as one PR:
+
+1. `README.md`, "How changes reach the box" — delete the **Not active yet**
+   paragraph. The section then reads in the present tense, which is true.
+2. `README.md`, repository layout — drop the `2026-08-09-cicd-github-actions.md`
+   exception from the `docs/superpowers/plans/` row, so plans are history again.
+3. `CLAUDE.md`, under "Tracked:" — delete the carve-out paragraph naming this
+   plan's Tasks 5, 6 and 8, and the "nothing is auto-deployed" sentence with it.
+
+Then re-read `CLAUDE.md`'s API section: the sentence about `reload_all` covers
+both deployment states deliberately, so it stays.
+
+This step is the last one for a reason. Anything that fails earlier leaves the
+box on manual sync, and the caveats correct.
 
 ---
 
