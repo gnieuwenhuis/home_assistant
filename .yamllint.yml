@@ -8,10 +8,14 @@ rules:
   line-length: disable
   # Banner comments sit at a different indent than the block they introduce.
   comments-indentation: disable
+  # These files carry no `---` document-start marker, and HA doesn't require one.
   document-start: disable
   truthy:
     # HA config idiomatically writes True/False alongside true/false.
     allowed-values: ["true", "false", "True", "False"]
   indentation:
+    # HA config mixes block styles, so indentation is checked for internal
+    # consistency rather than a fixed width; `whatever` accepts both the
+    # indented and non-indented sequence forms already in use.
     spaces: consistent
     indent-sequences: whatever
