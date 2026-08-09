@@ -113,6 +113,68 @@ per-room one**: switching either tile off turns the whole heat-pump system
 off — both rooms — and the other tile then reads `off` as well. There is no
 heat-vs-cool choice to make anywhere; the coordinator decides.
 
+## Troubleshooting
+
+Most of what looks broken here is a timer doing its job. Both controllers also
+re-run on a 5-minute heartbeat, so once whatever was blocking clears, the system
+corrects itself within five minutes — you rarely need to intervene.
+
+**Nothing responds at all.** The coordinator refuses to act on bad data: if any
+of six entities reads `unavailable` or `unknown` it stops before doing anything,
+leaving both heads exactly as they were. The six are the two baseboard
+temperature sensors, both heat-pump power switches, and both heat-pump `climate`
+entities. Check those first — it's usually Wi-Fi or the Cielo cloud. It retries
+every five minutes on its own.
+
+**A head won't restart right after it shut off.** That's the lockout — a minimum
+*off*-time of 8 minutes for the office, 6 for the studio, armed every time a head
+toggles. It never delays a shut-off, only a restart.
+
+**Cooling won't start although the room is above its cool bound.** Two normal
+causes. Either the other room is below its heat bound, and heating wins the
+shared compressor; or the system entered heating recently and the 15-minute mode
+dwell hasn't expired. Note the dwell re-arms on *every* entry into heating,
+including heat → idle → heat, so it can be up to 15 minutes from the last such
+hop rather than from the last real mode change.
+
+**The system mode says `heat` but both heads are off.** `system_hvac_mode` is the
+compressor's permitted *direction*, not a running indicator. It stays on the
+dwelling mode for the full dwell window, and under heating-wins a too-warm room's
+head is off while the mode still reads `heat`. The thermostat tiles show the true
+state — their status line checks each head's power switch as well.
+
+**The studio head is set to 21.5 when its bound is 20.** The 1.5 °C heat lead,
+deliberate. The commanded number is not the cut-off; the baseboard thermometer is.
+
+**The room drifts past its heat bound before the head stops.** Also deliberate —
+1.0 °C in the office, 0.5 in the studio. Cutting exactly at the bound would
+short-cycle the compressor.
+
+**Both thermostat tiles went to `off` together.** There is one master switch, and
+both tiles' on/off control writes it.
+
+**The baseboards are heating and the heat pump is off.** Backup heat: the outdoor
+sensor stayed below −12 °C for 20 minutes. It sends a phone notification on the
+way in and on the way out, and clears once outdoors holds above −12 °C for 20
+minutes.
+
+**The humidifier won't start after the dehumidifier stopped.** A 30-minute
+cross-device cooldown, so a turn-off overshoot settles before the opposite device
+reacts. A device's own cooldown never blocks itself.
+
+**A humidity plug ignores the controller.** Flipping a plug by hand is detected
+and buys a 15-minute grace period, during which the controller leaves it alone.
+The only exception is the safety that stops both running at once.
+
+**The dehumidifier stops at the set point rather than below it.** By design, and
+the hysteresis is asymmetric: `tolerance` decides where a device *starts*, the set
+point is where it *stops*. Widening the tolerance will not lower the stop point.
+
+**You edited `custom_templates/hvac.jinja` and nothing changed.** Home Assistant
+holds custom Jinja in memory. Reloading automations or template entities does not
+re-read the file and raises no error — the old macro just keeps running. Call
+`homeassistant.reload_custom_templates` (or `homeassistant.reload_all`).
+
 ## Repository layout
 
 | Path | What it is |
