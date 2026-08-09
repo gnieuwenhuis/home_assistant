@@ -205,3 +205,30 @@ uv venv .venv --python 3.14 --seed
 ```
 
 See `CLAUDE.md` for the full setup, conventions, and the helper-migration notes.
+
+## If you found this and want to reuse it
+
+You're welcome to — it's MIT licensed (see [`LICENSE`](LICENSE)). But read this
+first, because it is **not** a general-purpose Home Assistant package and it will
+not work if you drop it into your own config unchanged.
+
+It is written against one specific installation:
+
+- Two named rooms, `office` and `studio`, with a **shared-compressor multi-split**.
+  The single system-wide heat/cool decision — the core of the coordinator — only
+  makes sense because both heads share one outdoor unit. If your heads are
+  independent, this design is wrong for you.
+- Specific hardware and HACS integrations: Sinopé baseboards via `neviweb130`,
+  heat-pump heads via `cielo_home`, Tuya plugs, one Zigbee humidity sensor. Entity
+  IDs are hard-coded throughout `automations.yaml`.
+- Constants tuned by observation in *this* building — the per-room differentials,
+  the studio's heating lead, the lockout and dwell durations, the humidity band.
+  They encode this space's thermal mass and sensor placement, not general truths.
+
+The tests are the honest description of what is actually verified. Run them:
+they exercise the decision macros and load the automations from the real YAML,
+but they mock every service call, so nothing here has been proven against real
+hardware other than by running it in this one space.
+
+It controls real heating, cooling, and humidification equipment. If you adapt it,
+verify it against your own hardware before trusting it unattended.
