@@ -159,11 +159,9 @@ homeassistant:
 
 The whole file (its `input_number:` / `input_boolean:` / `input_select:` / `timer:` top-level keys) merges into the config in one shot — no per-domain `!include` lines, and the single-file shape is what `tests/conftest.py` loads, so it stays the source of truth for tests too. (Don't use `input_number: !include helpers.yaml` per-domain — that pastes all four domain keys under each domain and is invalid.)
 
-**Remaining one-time host cutover** (the repo side is done; until this runs, the UI-defined helper and the YAML helper collide on the same `entity_id`): deploy the files, then in Settings → Devices & services → Helpers **delete every helper that's defined in `helpers.yaml`** (the UI copies), then **restart HA** so the package loads.
+The one-time host cutover — deleting the UI-defined copies of these helpers under Settings → Devices & services → Helpers so they stop colliding with the package's entity IDs, then restarting HA to load the package — is complete. `helpers.yaml` is the source of truth — edit there, not in the UI, and apply with a Developer Tools → YAML domain reload (Input Number / Input Boolean / Input Select / Timer) or a restart.
 
-After cutover, `helpers.yaml` is the source of truth — edit there, not in the UI, and apply with a Developer Tools → YAML domain reload (Input Number / Input Boolean / Input Select / Timer) or a restart.
-
-The HVAC helpers, all defined in `helpers.yaml` (see the cutover note above for the host side):
+The HVAC helpers, all defined in `helpers.yaml`:
 
 - `input_number.<room>_heat_bound` / `<room>_cool_bound` — the two per-room setpoints (lower / upper), range `[17, 30]`. These four deliberately carry no `initial:`: the thermostat facade writes them at runtime, and `initial:` would short-circuit restore on every restart and reload, reverting whatever the user dialed in.
 - `input_number.<room>_temp_differential` — per-room hysteresis; the values ship as `initial:` in `helpers.yaml` (office 1.0, studio 0.5).
