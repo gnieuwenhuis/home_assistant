@@ -4,9 +4,15 @@
 comment on that line records which Home Assistant release the pin maps to.
 `ha-version.txt` records what the box actually runs. When the two diverge the
 suite is validating automations against a schema the box no longer has.
+
+Both of those are text, so the version of Home Assistant the harness actually
+imports is checked against `ha-version.txt` as well; editing the paper trail
+alone leaves the two consistent and the schema stale.
 """
 import re
 from pathlib import Path
+
+from homeassistant.const import __version__ as INSTALLED_HA
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -41,6 +47,20 @@ def test_requirements_pin_line_is_parseable():
         "  pytest-homeassistant-custom-component==<pin>  # → HA <version>\n"
         "The comment is parsed by this test; reformatting it disables the "
         "drift check."
+    )
+
+
+def test_installed_harness_matches_ha_version_file():
+    """Anchor the paper trail to the package that is actually imported.
+
+    The comment check compares two strings in the repo; both can be edited
+    together while the pin stays put, leaving the suite validating against the
+    old schema. This is the assertion the environment has to satisfy.
+    """
+    assert INSTALLED_HA == _ha_version_file().strip(), (
+        f"the installed harness provides HA {INSTALLED_HA} but ha-version.txt "
+        f"says the box runs {_ha_version_file().strip()}. Reinstall from "
+        f"requirements-dev.txt, or bump the pin to the release that matches."
     )
 
 

@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 import yaml as pyyaml
+from homeassistant.core_config import CORE_CONFIG_SCHEMA
 from homeassistant.helpers.template import Template
 from homeassistant.setup import async_setup_component
 from homeassistant.util.yaml import loader
@@ -21,6 +22,10 @@ from tests.conftest import REPO_ROOT
 # setpoints to this floor. A bound below it can never be commanded, so demand
 # in that direction would never clear.
 HEAD_TARGET_CLAMP_FLOOR = 17
+
+# One climate_template thermostat tile per room. Asserted before each loop over
+# climate:, so a block that lost its entries fails instead of passing vacuously.
+THERMOSTAT_TILES = 2
 
 
 class ExampleSecrets(loader.Secrets):
@@ -64,21 +69,41 @@ def test_configuration_parses_and_includes_resolve(config):
     )
 
 
+def test_core_config_block_validates(config):
+    """The homeassistant: block is the one whose breakage costs everything.
+
+    An invalid core config puts HA into recovery mode, where no automations
+    load at all — the coordinator included.
+    """
+    CORE_CONFIG_SCHEMA(config["homeassistant"])
+
+
 def test_included_files_exist():
     for name in ("automations.yaml", "scripts.yaml", "scenes.yaml",
                  "helpers.yaml"):
         assert (REPO_ROOT / name).exists(), f"{name} is included but missing"
 
 
-async def test_template_block_sets_up(hass_repo, config):
-    """The template: sensors schema-validate against a real HA.
+async def test_template_entities_are_created(hass_repo, config):
+    """Every sensor declared in the template: block exists after setup.
 
-    The entities they read do not exist here; templates resolve to unknown and
-    setup still succeeds, so a failure here is a schema error.
+    `async_setup_component` returns True even when the block is rejected: HA
+    logs `Invalid config for 'template'`, drops the whole block, and reports
+    success. Counting entities is what makes a schema error visible. The
+    entities the sensors read do not exist here, so their states are unknown —
+    existence is the assertion, not value.
+
+    A dropped block creates zero sensors, which costs
+    `sensor.<room>_baseboard_current_temperature`; hvac_coordinator guards on
+    both and short-circuits every run without them.
     """
-    assert await async_setup_component(
+    await async_setup_component(
         hass_repo, "template", {"template": config["template"]}
-    ), "the template: block failed to set up"
+    )
+    await hass_repo.async_block_till_done()
+    expected = sum(len(b["sensor"]) for b in config["template"] if "sensor" in b)
+    created = hass_repo.states.async_entity_ids("sensor")
+    assert len(created) == expected, (expected, sorted(created))
 
 
 async def test_climate_templates_render(hass_repo, config):
@@ -108,6 +133,7 @@ def test_climate_min_temp_matches_head_target_clamp(config):
     head_target clamps to [17, 30]; if a thermostat tile let the user dial a
     bound under that floor, cooling demand would never clear.
     """
+    assert len(config["climate"]) == THERMOSTAT_TILES
     for entry in config["climate"]:
         assert entry["min_temp"] == HEAD_TARGET_CLAMP_FLOOR, (
             f"{entry['name']} min_temp is {entry['min_temp']} but "
@@ -122,6 +148,7 @@ def test_climate_entries_have_required_keys(config):
         "target_temperature_high_template", "hvac_mode_template",
         "hvac_action_template", "set_temperature", "set_hvac_mode",
     }
+    assert len(config["climate"]) == THERMOSTAT_TILES
     for entry in config["climate"]:
         missing = required - set(entry)
         assert not missing, f"{entry.get('name')} is missing {sorted(missing)}"
