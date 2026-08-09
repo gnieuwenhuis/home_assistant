@@ -4,5 +4,5 @@
 # the live HA version (Settings → System → About on the HA instance, or
 # .HA_VERSION on the host — not tracked in this repo). Version table:
 #   https://github.com/MatthewFlamm/pytest-homeassistant-custom-component
-pytest-homeassistant-custom-component==0.13.337  # → HA 2026.6.1
+pytest-homeassistant-custom-component==0.13.355  # → HA 2026.8.1
 pyyaml

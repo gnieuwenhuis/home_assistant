@@ -175,6 +175,14 @@ holds custom Jinja in memory. Reloading automations or template entities does no
 re-read the file and raises no error — the old macro just keeps running. Call
 `homeassistant.reload_custom_templates` (or `homeassistant.reload_all`).
 
+**A config change I made on the box disappeared.** Expected. The Git pull
+add-on reverts `/config` to `main` every five minutes. Make the change in the
+repository instead — see "How changes reach the box".
+
+**Home Assistant restarted on its own.** Also expected, if a commit landed on
+`main` in the last five minutes. Documentation-only commits do not restart it;
+`restart_ignore` in the add-on config lists what is exempt.
+
 ## Repository layout
 
 | Path | What it is |
@@ -184,9 +192,12 @@ re-read the file and raises no error — the old macro just keeps running. Call
 | `custom_templates/hvac.jinja` | The pure decision logic for the coordinator (heat/cool/idle), unit-tested |
 | `helpers.yaml` | The input numbers / booleans / timers (bounds, master switch, etc.) |
 | `tests/` | `pytest` suite covering the control logic |
+| `ha-version.txt` | The Home Assistant release the box runs; the test harness is pinned and asserted against it |
+| `.yamllint.yml` | yamllint rules for the three hand-edited HA config files |
+| `.github/workflows/ci.yml` | CI: yamllint, actionlint and the test suite, on every pull request and on `main` |
 | `.env.example` | Template for the gitignored `.env` holding your Home Assistant API token |
 | `docs/superpowers/specs/` | Dated design docs, oldest first. Start with `2026-06-15-ecobee-style-hvac-design.md`; it supersedes the earlier changeover-advisor and steering-loop designs. |
-| `docs/superpowers/plans/` | Implementation plans, one per design — all six are merged. This is a history, not a queue; the `- [ ]` boxes were never ticked and mean nothing. Do not re-execute one. |
+| `docs/superpowers/plans/` | Implementation plans, one per design. Mostly history rather than a queue; the `- [ ]` boxes were never ticked and mean nothing. Do not re-execute one. The exception is `2026-08-09-cicd-github-actions.md`, whose host-setup task is genuinely outstanding — see "How changes reach the box". |
 | `CLAUDE.md` | Conventions and guidance for working in this repo |
 
 Some devices and sensors are provided by HACS custom integrations (Cielo Home,
@@ -195,9 +206,8 @@ for the install list.
 
 ## Working on it
 
-This config is **not** auto-deployed. Changes are made here, then synced to the
-live Home Assistant box and reloaded (or HA restarted). The control logic has a
-test suite:
+Changes are made here, then reach the live Home Assistant box as "How changes
+reach the box" below describes. The control logic has a test suite:
 
 ```sh
 uv venv .venv --python 3.14 --seed
@@ -206,6 +216,44 @@ uv venv .venv --python 3.14 --seed
 ```
 
 See `CLAUDE.md` for the full setup, conventions, and the helper-migration notes.
+
+## How changes reach the box
+
+**Not active yet.** Everything in this section starts applying once the Git
+pull add-on is installed on the Home Assistant host. Until then a merge to
+`main` reaches nothing: changes get to the box by copying the files across and
+reloading by hand.
+
+This config deploys itself. The Home Assistant **Git pull add-on** checks
+`main` every five minutes, hard-resets `/config` to it, and restarts Home
+Assistant. Changes reach the hardware without a manual sync.
+
+Three consequences worth knowing before you edit anything:
+
+**The box is read-only for tracked files.** Editing `automations.yaml` in File
+Editor or Studio Code Server works for about five minutes, then the add-on
+reverts it. Change it here, open a PR, let it merge.
+
+**A deploy restarts Home Assistant.** Roughly 30–60 seconds with no heating,
+cooling or humidity control. Both coordinators re-run on startup and all timers
+restore, so the system reconciles itself — but an invalid config means HA does
+not come back at all, which is why `main` is gated on CI.
+
+**Adding a secret is a box-first operation.** Put the real value in
+`secrets.yaml` on the host *before* merging the change that references it.
+The reverse order starts HA into a failure.
+
+### Rolling back
+
+**Do not roll back on the box.** A `git reset` in `/config` is undone within
+five minutes when the add-on re-pulls `main`. Either:
+
+1. **Stop the Git pull add-on first**, then reset `/config`. Fastest under
+   pressure, and the box stays put until you restart the add-on.
+2. **Revert on `main`** — a PR, a CI cycle, then the add-on picks it up. The
+   durable fix, but slower.
+
+Do (1) to stop the bleeding, then (2) to make it stick.
 
 ## Talking to the live Home Assistant
 

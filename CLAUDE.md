@@ -13,6 +13,8 @@ Tracked:
 - `scripts.yaml`, `scenes.yaml` — included from `configuration.yaml`; currently empty
 - `custom_templates/hvac.jinja` — the heat-pump coordinator decision macros
 - `tests/`, `pytest.ini`, `requirements-dev.txt` — pytest harness (see "Tests")
+- `ha-version.txt` — the HA release the live box runs, on one bare line. `tests/test_version_pin.py` asserts the `requirements-dev.txt` pin, its comment, and the *installed* harness all agree with it.
+- `.yamllint.yml`, `.github/workflows/ci.yml` — the CI gate: yamllint over the three hand-edited config files, actionlint over the workflows, and the test suite
 - `helpers.yaml` — `input_number` / `input_boolean` / `input_select` / `timer` definitions; wired into `configuration.yaml` as a package (see "Helpers migration" below)
 - `secrets.yaml.example` — placeholder showing which `!secret` keys must exist
 - `.env.example` — placeholder for the repo-root `.env` (see "Live Home Assistant API access")
@@ -22,8 +24,13 @@ Tracked:
 - `.gitignore` — the exclusion list the next section summarizes
 
 `docs/superpowers/specs/` and `docs/superpowers/plans/` are the dated design record.
-Every plan there is already merged and none of their `- [ ]` checkboxes are ticked, so
-checkbox state is not a to-do signal. The changeover advisor
+Every plan there is merged and none of their `- [ ]` checkboxes are ticked, so
+checkbox state is not a to-do signal — with one carve-out.
+`2026-08-09-cicd-github-actions.md` is the exception: its Tasks 5, 6 and 8 (merge,
+tighten the GitHub ruleset, install the Git pull add-on on the host) are genuinely
+outstanding and await the owner's go-ahead. Until Task 8 runs, nothing about this
+repository is auto-deployed. Delete this carve-out when those tasks are done. The
+changeover advisor
 (`2026-06-07-changeover-advisor*`, both plan and spec) was built and then removed in
 `f2d051b`; the ecobee coordinator replaces it. Don't resurrect it.
 
@@ -57,13 +64,16 @@ against a real HA setup — bounds, differentials, the tuned `initial:` values,
 keeps retired pre-ecobee helpers from creeping back.
 
 ```sh
-uv python install 3.14                       # once; HA 2026.6 needs Python ≥ 3.14
+uv python install 3.14                       # once; HA 2026.8 needs Python ≥ 3.14
 uv venv .venv --python 3.14 --seed
 .venv/bin/pip install -r requirements-dev.txt   # keep pinned to the live HA version
 .venv/bin/pytest
 ```
 
-There is no other build / lint pipeline. Changes are deployed by syncing these
+`.github/workflows/ci.yml` runs the same suite on every pull request and on
+`main`, alongside yamllint (`.yamllint.yml`, over `automations.yaml`,
+`helpers.yaml`, `configuration.yaml`) and actionlint. There is no other build
+step. Changes are deployed by syncing these
 files to the HA instance and reloading: `automation.reload` for
 `automations.yaml`, `template.reload` for the `template:` block in
 `configuration.yaml`, and **`homeassistant.reload_custom_templates` for
@@ -128,8 +138,13 @@ carry to the next:
 - `POST /api/states/<entity_id>` — overwrites HA's stored state, desynchronizing
   it from the device until the integration next polls
 
-Deploying stays a manual step (see "Tests"): this repo is not auto-deployed, and
-an agent-issued `homeassistant.reload_all` would quietly make it so.
+Deploying is never an agent's call, in either deployment state. Until the Git
+pull add-on is installed on the host (Task 8 of
+`docs/superpowers/plans/2026-08-09-cicd-github-actions.md`), this repo is not
+auto-deployed and an agent-issued `homeassistant.reload_all` would quietly make
+it so. Once the add-on runs, `main` is the only sanctioned path to the box, and
+a `reload_all` puts whatever the working tree holds onto the hardware ahead of
+review.
 
 A `401` means the token was revoked or replaced — the fix is a new token from the
 HA UI, not a retry. A connection failure means the box is unreachable from this
@@ -159,11 +174,9 @@ homeassistant:
 
 The whole file (its `input_number:` / `input_boolean:` / `input_select:` / `timer:` top-level keys) merges into the config in one shot — no per-domain `!include` lines, and the single-file shape is what `tests/conftest.py` loads, so it stays the source of truth for tests too. (Don't use `input_number: !include helpers.yaml` per-domain — that pastes all four domain keys under each domain and is invalid.)
 
-**Remaining one-time host cutover** (the repo side is done; until this runs, the UI-defined helper and the YAML helper collide on the same `entity_id`): deploy the files, then in Settings → Devices & services → Helpers **delete every helper that's defined in `helpers.yaml`** (the UI copies), then **restart HA** so the package loads.
+`helpers.yaml` is the sole source of truth for these entities; no UI-defined copies compete for their entity IDs. Edit there, not in the UI, and apply with a Developer Tools → YAML domain reload (Input Number / Input Boolean / Input Select / Timer) or a restart.
 
-After cutover, `helpers.yaml` is the source of truth — edit there, not in the UI, and apply with a Developer Tools → YAML domain reload (Input Number / Input Boolean / Input Select / Timer) or a restart.
-
-The HVAC helpers, all defined in `helpers.yaml` (see the cutover note above for the host side):
+The HVAC helpers, all defined in `helpers.yaml`:
 
 - `input_number.<room>_heat_bound` / `<room>_cool_bound` — the two per-room setpoints (lower / upper), range `[17, 30]`. These four deliberately carry no `initial:`: the thermostat facade writes them at runtime, and `initial:` would short-circuit restore on every restart and reload, reverting whatever the user dialed in.
 - `input_number.<room>_temp_differential` — per-room hysteresis; the values ship as `initial:` in `helpers.yaml` (office 1.0, studio 0.5).
