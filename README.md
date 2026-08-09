@@ -192,9 +192,12 @@ repository instead — see "How changes reach the box".
 | `custom_templates/hvac.jinja` | The pure decision logic for the coordinator (heat/cool/idle), unit-tested |
 | `helpers.yaml` | The input numbers / booleans / timers (bounds, master switch, etc.) |
 | `tests/` | `pytest` suite covering the control logic |
+| `ha-version.txt` | The Home Assistant release the box runs; the test harness is pinned and asserted against it |
+| `.yamllint.yml` | yamllint rules for the three hand-edited HA config files |
+| `.github/workflows/ci.yml` | CI: yamllint, actionlint and the test suite, on every pull request and on `main` |
 | `.env.example` | Template for the gitignored `.env` holding your Home Assistant API token |
 | `docs/superpowers/specs/` | Dated design docs, oldest first. Start with `2026-06-15-ecobee-style-hvac-design.md`; it supersedes the earlier changeover-advisor and steering-loop designs. |
-| `docs/superpowers/plans/` | Implementation plans, one per design — all six are merged. This is a history, not a queue; the `- [ ]` boxes were never ticked and mean nothing. Do not re-execute one. |
+| `docs/superpowers/plans/` | Implementation plans, one per design. Mostly history rather than a queue; the `- [ ]` boxes were never ticked and mean nothing. Do not re-execute one. The exception is `2026-08-09-cicd-github-actions.md`, whose host-setup task is genuinely outstanding — see "How changes reach the box". |
 | `CLAUDE.md` | Conventions and guidance for working in this repo |
 
 Some devices and sensors are provided by HACS custom integrations (Cielo Home,
@@ -203,9 +206,8 @@ for the install list.
 
 ## Working on it
 
-This config is **not** auto-deployed. Changes are made here, then synced to the
-live Home Assistant box and reloaded (or HA restarted). The control logic has a
-test suite:
+Changes are made here, then reach the live Home Assistant box as "How changes
+reach the box" below describes. The control logic has a test suite:
 
 ```sh
 uv venv .venv --python 3.14 --seed
@@ -216,6 +218,11 @@ uv venv .venv --python 3.14 --seed
 See `CLAUDE.md` for the full setup, conventions, and the helper-migration notes.
 
 ## How changes reach the box
+
+**Not active yet.** Everything in this section starts applying once the Git
+pull add-on is installed on the Home Assistant host. Until then a merge to
+`main` reaches nothing: changes get to the box by copying the files across and
+reloading by hand.
 
 This config deploys itself. The Home Assistant **Git pull add-on** checks
 `main` every five minutes, hard-resets `/config` to it, and restarts Home
