@@ -708,7 +708,7 @@ Create `.github/rulesets/main.json`:
         "workflows": [
           {
             "path": ".github/workflows/ci.yml",
-            "repository_id": null,
+            "repository_id": 1249574820,
             "ref": "refs/heads/main"
           }
         ]
@@ -718,13 +718,14 @@ Create `.github/rulesets/main.json`:
 }
 ```
 
-`repository_id` must be this repository's numeric id. Get it with:
+`repository_id` is this repository's numeric id, already resolved. Confirm it
+still matches before applying:
 
 ```bash
 gh api repos/gnieuwenhuis/home_assistant_config --jq .id
 ```
 
-Substitute that number for `null` before applying.
+Expected: `1249574820`.
 
 `bypass_mode` is `pull_request`, not removed: it blocks accidental direct
 pushes to `main` while keeping a deliberate red-PR override, which is also the
@@ -871,9 +872,42 @@ The live system has `timer.dehumidify_cooldown` at exactly the 30 minutes
 `helpers.yaml` specifies and no `_2` duplicate entities, which means the
 package is loaded and the cutover is done.
 
-**Verify before editing** — Task 8 Step 3 performs this check. If the
-verification has not run yet, do that first; if it shows the cutover is
-genuinely outstanding, skip this step and leave `CLAUDE.md` alone.
+**Verify against the live instance before editing.** This is a read-only API
+call, which `CLAUDE.md` permits without asking. The token lives in the **main
+checkout's** `.env`, not this worktree — `.env` is gitignored, so it is not
+present here:
+
+```bash
+set -a; . /Users/gregn/Documents/office/.env; set +a
+curl -s -H "Authorization: Bearer $HOME_ASSISTANT_TOKEN" \
+  http://homeassistant.local:8123/api/states \
+  | python3 -c "
+import sys, json
+states = json.load(sys.stdin)
+dupes = [s['entity_id'] for s in states
+         if s['entity_id'].endswith('_2')
+         and s['entity_id'].split('.')[0] in
+             ('input_number', 'input_boolean', 'input_select', 'timer')]
+print('duplicate helper entities:', dupes or 'none')
+for eid in ('timer.dehumidify_cooldown', 'timer.humidify_cooldown',
+            'timer.mode_min_dwell'):
+    s = next((x for x in states if x['entity_id'] == eid), None)
+    print(f'  {eid}: '
+          + (s['attributes'].get('duration', '?') if s else 'MISSING'))
+"
+```
+
+Expected: no duplicates, `dehumidify_cooldown` and `humidify_cooldown` at
+`0:30:00`, `mode_min_dwell` at `0:15:00` — those durations exist only in
+`helpers.yaml`, so matching them proves the package is loaded and the UI copies
+are gone.
+
+(Verified on 2026-08-09: no `_2` duplicates, and all three timers reported the
+`helpers.yaml` durations.)
+
+If duplicates appear or a timer is `MISSING`, the cutover is genuinely
+outstanding: **skip this step, leave `CLAUDE.md` alone**, and report it — the
+plan's Task 8 Step 3 handles completing the cutover on the host.
 
 Once verified, replace the "Remaining one-time host cutover" paragraph with a
 statement that the cutover is complete and `helpers.yaml` is authoritative,
