@@ -1,0 +1,17 @@
+extends: default
+
+rules:
+  # The humidity controller's `variables:` block aligns values into a column.
+  # That alignment is deliberate and reads better than single-spacing.
+  colons: disable
+  # HA template expressions and the long-form comments both run past 80.
+  line-length: disable
+  # Banner comments sit at a different indent than the block they introduce.
+  comments-indentation: disable
+  document-start: disable
+  truthy:
+    # HA config idiomatically writes True/False alongside true/false.
+    allowed-values: ["true", "false", "True", "False"]
+  indentation:
+    spaces: consistent
+    indent-sequences: whatever
