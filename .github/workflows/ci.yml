@@ -21,6 +21,9 @@ permissions:
 jobs:
   lint:
     runs-on: ubuntu-latest
+    # GitHub's default is 6 hours. Once these are required checks, a hung job
+    # is a PR nobody can merge until it expires.
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
 
@@ -35,6 +38,7 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
 
