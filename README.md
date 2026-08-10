@@ -256,8 +256,9 @@ fails, which leaves a split state: `/config` on disk holds the bad commit, Home
 Assistant keeps running the previous config from memory, and the next poll finds
 no new commit, logs "Nothing has changed" and never re-checks. The box holds
 there until some unrelated restart, which then fails with no recent change to
-blame. The add-on log is the only signal — grep it for `does not pass the config
-check`. A fault the check misses is the worse case: Home Assistant restarts and
+blame. Two signals: the add-on log carries `does not pass the config check` at
+the poll it happens, and `ha core check` reproduces the failure afterwards
+against whatever `/config` holds. A fault the check misses is the worse case: Home Assistant restarts and
 does not come back. Both are why `main` is gated on CI.
 
 A repository admin can merge a red pull request; it deploys like any other, and
