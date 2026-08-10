@@ -1087,8 +1087,12 @@ restart_ignore:
   - .yamllint.yml
 repeat:
   active: true
-  interval: 5
+  interval: 300
 ```
+
+`repeat.interval` is in **seconds** — the add-on documents it as "the interval in
+seconds to poll the repo" — so a five-minute poll is `300`. A literal `5` would
+hard-reset `/config` twelve times a minute.
 
 Start the add-on, then read its log. Expected: a successful fetch and "nothing
 to do" — `/config` already matches `main` from Step 5.

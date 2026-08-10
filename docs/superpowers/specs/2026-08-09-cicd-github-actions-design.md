@@ -264,10 +264,14 @@ restart_ignore:
   - ha-version.txt
   - secrets.yaml.example
   - .env.example
-repeat: {active: true, interval: 5}
+repeat: {active: true, interval: 300}
 ```
 
 `restart_ignore` does real work: without it a README typo restarts HVAC control.
+
+`repeat.interval` is in **seconds** — the add-on documents it as "the interval in
+seconds to poll the repo" — so the five-minute poll this design assumes is `300`,
+not `5`.
 
 ### One-time host setup
 
