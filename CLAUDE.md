@@ -15,6 +15,7 @@ Tracked:
 - `tests/`, `pytest.ini`, `requirements-dev.txt` — pytest harness (see "Tests")
 - `ha-version.txt` — the HA release the live box runs, on one bare line. `tests/test_version_pin.py` asserts the `requirements-dev.txt` pin, its comment, and the *installed* harness all agree with it.
 - `.yamllint.yml`, `.github/workflows/ci.yml` — the CI gate: yamllint over the three hand-edited config files, actionlint over the workflows, and the test suite
+- `.github/rulesets/main.json` — a tracked copy of the branch protection GitHub enforces on `main` (see "Deployment")
 - `helpers.yaml` — `input_number` / `input_boolean` / `input_select` / `timer` definitions; wired into `configuration.yaml` as a package (see "Helpers migration" below)
 - `secrets.yaml.example` — placeholder showing which `!secret` keys must exist
 - `.env.example` — placeholder for the repo-root `.env` (see "Live Home Assistant API access")
@@ -25,12 +26,7 @@ Tracked:
 
 `docs/superpowers/specs/` and `docs/superpowers/plans/` are the dated design record.
 Every plan there is merged and none of their `- [ ]` checkboxes are ticked, so
-checkbox state is not a to-do signal — with one carve-out.
-`2026-08-09-cicd-github-actions.md` is the exception: its Tasks 5, 6 and 8 (merge,
-tighten the GitHub ruleset, install the Git pull add-on on the host) are genuinely
-outstanding and await the owner's go-ahead. Until Task 8 runs, nothing about this
-repository is auto-deployed. Delete this carve-out when those tasks are done. The
-changeover advisor
+checkbox state is not a to-do signal. The changeover advisor
 (`2026-06-07-changeover-advisor*`, both plan and spec) was built and then removed in
 `f2d051b`; the ecobee coordinator replaces it. Don't resurrect it.
 
@@ -73,14 +69,62 @@ uv venv .venv --python 3.14 --seed
 `.github/workflows/ci.yml` runs the same suite on every pull request and on
 `main`, alongside yamllint (`.yamllint.yml`, over `automations.yaml`,
 `helpers.yaml`, `configuration.yaml`) and actionlint. There is no other build
-step. Changes are deployed by syncing these
-files to the HA instance and reloading: `automation.reload` for
+step. A merge to `main` reaches the box on its own (see "Deployment").
+
+A deploy restarts HA, which applies every config file at once. The reload
+services each cover one slice of that: `automation.reload` for
 `automations.yaml`, `template.reload` for the `template:` block in
 `configuration.yaml`, and **`homeassistant.reload_custom_templates` for
-`custom_templates/hvac.jinja`** — HA holds custom Jinja in an in-memory loader, so
-an edited macro keeps rendering its old body, silently and with no error, until
-that service runs. `homeassistant.reload_all` covers all three (it aborts if the
-config is invalid).
+`custom_templates/hvac.jinja`** — HA holds custom Jinja in an in-memory loader,
+so an edited macro keeps rendering its old body, silently and with no error,
+until that service runs. `homeassistant.reload_all` covers all three (it aborts
+if the config is invalid).
+
+## Deployment
+
+`main` is what the box runs. The **Git pull add-on** (`core_git_pull`) on the HA
+host polls `main` every five minutes, hard-resets `/config` to it, and restarts
+HA unless every changed path sits in `restart_ignore` (`.github/`, `docs/`,
+`tests/`, and the non-config root files). A merged config change is therefore on
+live hardware within about six minutes, reviewed by nothing but CI. The add-on's
+`repeat.interval` is in **seconds** (`300`) — a bare `5` would re-checkout
+`/config` twelve times a minute. README's "How changes reach the box" holds the
+operator view: what each stage costs, what survives the reset, and the box-first
+rule for new `!secret` keys.
+
+The merge gate is the ruleset recorded in `.github/rulesets/main.json` (id
+`20613372`, active): `deletion`, `non_fast_forward`, `required_linear_history`,
+`pull_request` (squash-only, zero approvals) and `required_status_checks` on
+`lint` and `test`, strict. **Those two contexts are the job names in
+`.github/workflows/ci.yml`** — renaming a job disarms the gate silently until the
+ruleset is updated to match. The one bypass actor is the repository-admin role in
+`pull_request` mode: it blocks direct pushes to `main` while still permitting a
+deliberate merge of a red PR, which is also the way through a GitHub Actions
+outage. (yamllint ships preinstalled on `ubuntu-latest`, so the `pipx install
+yamllint` step is a no-op there.)
+
+The design in `docs/superpowers/specs/2026-08-09-cicd-github-actions-design.md`
+also specifies a `workflows` rule pinning `.github/workflows/ci.yml` by path.
+GitHub rejects it with a `422` on this repository: Required Workflows is an
+organization-level feature and this repository is user-owned. It is unavailable
+rather than misconfigured — the call cannot succeed, so don't retry it.
+
+Working on the box itself:
+
+- The Supervisor **panel 404s** here — `Settings → Add-ons` and
+  `/hassio/dashboard` are both unavailable, though Supervisor itself is healthy.
+  Add-ons are driven with the `ha` CLI from the Studio Code Server terminal.
+- `ha addons` has no `options` subcommand. Add-on configuration goes through
+  `POST http://supervisor/addons/<slug>/options` with
+  `Authorization: Bearer $SUPERVISOR_TOKEN`, and that POST is a **full replace**:
+  omitting a schema-required key (`deployment_user`, for one) rejects the entire
+  payload.
+- The add-on compares its `repository` option against the checkout's `origin` URL
+  as a **literal string** and refuses to start on any mismatch, so a repository
+  rename needs `git remote set-url` in `/config`.
+- Read drift as `git diff origin/main`, explicitly. A bare `git diff` compares
+  against `HEAD`, which can sit on an old commit and read as "in sync" while the
+  working tree is many files behind.
 
 ## Live Home Assistant API access
 
@@ -138,13 +182,10 @@ carry to the next:
 - `POST /api/states/<entity_id>` — overwrites HA's stored state, desynchronizing
   it from the device until the integration next polls
 
-Deploying is never an agent's call, in either deployment state. Until the Git
-pull add-on is installed on the host (Task 8 of
-`docs/superpowers/plans/2026-08-09-cicd-github-actions.md`), this repo is not
-auto-deployed and an agent-issued `homeassistant.reload_all` would quietly make
-it so. Once the add-on runs, `main` is the only sanctioned path to the box, and
-a `reload_all` puts whatever the working tree holds onto the hardware ahead of
-review.
+Deploying is never an agent's call: `main` is the only sanctioned path to the box
+(see "Deployment"). A reload service re-applies whatever `/config` holds at that
+moment — a hand-edit on the box included — onto live hardware, ahead of CI, review
+and the add-on's next poll.
 
 A `401` means the token was revoked or replaced — the fix is a new token from the
 HA UI, not a retry. A connection failure means the box is unreachable from this

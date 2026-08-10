@@ -179,9 +179,11 @@ re-read the file and raises no error — the old macro just keeps running. Call
 add-on reverts `/config` to `main` every five minutes. Make the change in the
 repository instead — see "How changes reach the box".
 
-**Home Assistant restarted on its own.** Also expected, if a commit landed on
-`main` in the last five minutes. Documentation-only commits do not restart it;
-`restart_ignore` in the add-on config lists what is exempt.
+**Home Assistant restarted on its own.** Also expected, within about six minutes
+of a commit landing on `main` that touches a config file — the add-on polls every
+five minutes and the restart itself costs about a minute. Documentation-only
+commits pull without restarting anything; `restart_ignore` in the add-on config
+lists what is exempt.
 
 ## Repository layout
 
@@ -195,9 +197,10 @@ repository instead — see "How changes reach the box".
 | `ha-version.txt` | The Home Assistant release the box runs; the test harness is pinned and asserted against it |
 | `.yamllint.yml` | yamllint rules for the three hand-edited HA config files |
 | `.github/workflows/ci.yml` | CI: yamllint, actionlint and the test suite, on every pull request and on `main` |
+| `.github/rulesets/main.json` | A tracked copy of the branch protection GitHub enforces on `main` |
 | `.env.example` | Template for the gitignored `.env` holding your Home Assistant API token |
 | `docs/superpowers/specs/` | Dated design docs, oldest first. Start with `2026-06-15-ecobee-style-hvac-design.md`; it supersedes the earlier changeover-advisor and steering-loop designs. |
-| `docs/superpowers/plans/` | Implementation plans, one per design. Mostly history rather than a queue; the `- [ ]` boxes were never ticked and mean nothing. Do not re-execute one. The exception is `2026-08-09-cicd-github-actions.md`, whose host-setup task is genuinely outstanding — see "How changes reach the box". |
+| `docs/superpowers/plans/` | Implementation plans, one per design. History rather than a queue; the `- [ ]` boxes were never ticked and mean nothing. Do not re-execute one. |
 | `CLAUDE.md` | Conventions and guidance for working in this repo |
 
 Some devices and sensors are provided by HACS custom integrations (Cielo Home,
@@ -219,25 +222,31 @@ See `CLAUDE.md` for the full setup, conventions, and the helper-migration notes.
 
 ## How changes reach the box
 
-**Not active yet.** Everything in this section starts applying once the Git
-pull add-on is installed on the Home Assistant host. Until then a merge to
-`main` reaches nothing: changes get to the box by copying the files across and
-reloading by hand.
+This config deploys itself. An edit becomes live configuration by way of `main`:
 
-This config deploys itself. The Home Assistant **Git pull add-on** checks
-`main` every five minutes, hard-resets `/config` to it, and restarts Home
-Assistant. Changes reach the hardware without a manual sync.
+| Stage | What happens | How long |
+|------|--------------|----------|
+| Pull request | Two required checks run: `lint` (yamllint over the three hand-edited config files, actionlint over the workflows) and `test` (the pytest suite on Python 3.14) | ~15 s / ~70 s |
+| Merge | Squash only, linear history, both checks green and up to date with `main` | — |
+| Poll | The Home Assistant **Git pull add-on** fetches `main` and hard-resets `/config` to it | every 5 min |
+| Restart | Home Assistant restarts, unless every changed path sits in the add-on's `restart_ignore` — `docs/`, `tests/`, `.github/`, and the non-config root files including this README | ~1 min down |
 
-Three consequences worth knowing before you edit anything:
+A config change is therefore live five to six minutes after the merge, with
+about a minute of no heating, cooling or humidity control in the middle. Both
+coordinators reconcile on startup and every timer restores, so the system picks
+up where it left off — but an invalid config means Home Assistant does not come
+back at all, which is why `main` is gated on CI. A repository admin can merge a
+red pull request; it deploys like any other, and that override is also the way
+through a GitHub Actions outage.
+
+The reset replaces tracked files only. `secrets.yaml`, `.storage/`, the HACS
+`custom_components/` and `www/community/` are gitignored and survive every pull.
+
+Two consequences worth knowing before you edit anything:
 
 **The box is read-only for tracked files.** Editing `automations.yaml` in File
-Editor or Studio Code Server works for about five minutes, then the add-on
-reverts it. Change it here, open a PR, let it merge.
-
-**A deploy restarts Home Assistant.** Roughly 30–60 seconds with no heating,
-cooling or humidity control. Both coordinators re-run on startup and all timers
-restore, so the system reconciles itself — but an invalid config means HA does
-not come back at all, which is why `main` is gated on CI.
+Editor or Studio Code Server holds for one poll at most, then the add-on reverts
+it. Change it here, open a PR, let it merge.
 
 **Adding a secret is a box-first operation.** Put the real value in
 `secrets.yaml` on the host *before* merging the change that references it.
@@ -254,6 +263,15 @@ five minutes when the add-on re-pulls `main`. Either:
    durable fix, but slower.
 
 Do (1) to stop the bleeding, then (2) to make it stick.
+
+The Supervisor panel 404s on this box — `Settings → Add-ons` and
+`/hassio/dashboard` are unavailable, though Supervisor itself is healthy — so
+the add-on is driven from the Studio Code Server terminal:
+
+```sh
+ha addons stop core_git_pull
+ha addons start core_git_pull
+```
 
 ## Talking to the live Home Assistant
 
