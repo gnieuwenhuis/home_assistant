@@ -264,6 +264,7 @@ restart_ignore:
   - ha-version.txt
   - secrets.yaml.example
   - .env.example
+  - .yamllint.yml
 repeat: {active: true, interval: 300}
 ```
 

@@ -15,7 +15,7 @@ Tracked:
 - `tests/`, `pytest.ini`, `requirements-dev.txt` — pytest harness (see "Tests")
 - `ha-version.txt` — the HA release the live box runs, on one bare line. `tests/test_version_pin.py` asserts the `requirements-dev.txt` pin, its comment, and the *installed* harness all agree with it.
 - `.yamllint.yml`, `.github/workflows/ci.yml` — the CI gate: yamllint over the three hand-edited config files, actionlint over the workflows, and the test suite
-- `.github/rulesets/main.json` — a tracked copy of the branch protection GitHub enforces on `main` (see "Deployment")
+- `.github/rulesets/main.json` — the branch-protection payload applied to `main`, kept as a record of what was applied (see "Deployment")
 - `helpers.yaml` — `input_number` / `input_boolean` / `input_select` / `timer` definitions; wired into `configuration.yaml` as a package (see "Helpers migration" below)
 - `secrets.yaml.example` — placeholder showing which `!secret` keys must exist
 - `.env.example` — placeholder for the repo-root `.env` (see "Live Home Assistant API access")
@@ -92,12 +92,15 @@ live hardware within about six minutes, reviewed by nothing but CI. The add-on's
 operator view: what each stage costs, what survives the reset, and the box-first
 rule for new `!secret` keys.
 
-The merge gate is the ruleset recorded in `.github/rulesets/main.json` (id
-`20613372`, active): `deletion`, `non_fast_forward`, `required_linear_history`,
-`pull_request` (squash-only, zero approvals) and `required_status_checks` on
-`lint` and `test`, strict. **Those two contexts are the job names in
-`.github/workflows/ci.yml`** — renaming a job disarms the gate silently until the
-ruleset is updated to match. The one bypass actor is the repository-admin role in
+The merge gate is the ruleset on `main`, active, GitHub's id `20613372`. Its
+payload is recorded in `.github/rulesets/main.json`: `deletion`,
+`non_fast_forward`, `required_linear_history`, `pull_request` (squash-only, zero
+approvals) and `required_status_checks` on `lint` and `test`, strict. That file
+records what was applied and nothing keeps it in step afterwards — read the live
+rules with `gh api repos/gnieuwenhuis/home_assistant_config/rulesets/20613372`.
+**Those two contexts are the job names in `.github/workflows/ci.yml`** — renaming
+a job disarms the gate silently until the ruleset is updated to match. The one
+bypass actor is the repository-admin role in
 `pull_request` mode: it blocks direct pushes to `main` while still permitting a
 deliberate merge of a red PR, which is also the way through a GitHub Actions
 outage. (yamllint ships preinstalled on `ubuntu-latest`, so the `pipx install
@@ -113,7 +116,8 @@ Working on the box itself:
 
 - The Supervisor **panel 404s** here — `Settings → Add-ons` and
   `/hassio/dashboard` are both unavailable, though Supervisor itself is healthy.
-  Add-ons are driven with the `ha` CLI from the Studio Code Server terminal.
+  Add-ons are driven with the `ha` CLI from a shell on the host — the Terminal or
+  Studio Code Server add-on, or SSH.
 - `ha addons` has no `options` subcommand. Add-on configuration goes through
   `POST http://supervisor/addons/<slug>/options` with
   `Authorization: Bearer $SUPERVISOR_TOKEN`, and that POST is a **full replace**:
@@ -124,7 +128,16 @@ Working on the box itself:
   rename needs `git remote set-url` in `/config`.
 - Read drift as `git diff origin/main`, explicitly. A bare `git diff` compares
   against `HEAD`, which can sit on an old commit and read as "in sync" while the
-  working tree is many files behind.
+  working tree is many files behind. Either spelling proves file drift, not
+  runtime drift: a hand-edit that was reloaded before the reset discarded it
+  leaves the running instance ahead of every file on disk.
+- A pull whose result fails HA's config check leaves a **split state**. The
+  add-on runs that check before restarting and returns without restarting when it
+  fails, so `/config` holds the new commit while HA runs the previous config from
+  memory; the next poll finds no new commit, logs "Nothing has changed" and never
+  re-checks. A deploy that "silently did not take effect" is this, not a stale
+  poll — the add-on log carries `Configuration updated but it does not pass the
+  config check`.
 
 ## Live Home Assistant API access
 
