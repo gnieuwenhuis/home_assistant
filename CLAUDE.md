@@ -9,7 +9,7 @@ A **Home Assistant configuration** for a two-room space (office + studio), versi
 Tracked:
 
 - `configuration.yaml` — root HA config, template sensors, `neviweb130` integration, notify group
-- `automations.yaml` — all automations (HVAC coordinator, backup heat, humidity)
+- `automations.yaml` — all automations (HVAC coordinator, backup heat, humidity, the Eva lamp auto-off)
 - `scripts.yaml`, `scenes.yaml` — included from `configuration.yaml`; currently empty
 - `custom_templates/hvac.jinja` — the heat-pump coordinator decision macros
 - `tests/`, `pytest.ini`, `requirements-dev.txt` — pytest harness (see "Tests")
@@ -38,7 +38,7 @@ Not tracked — the entries that matter (see `.gitignore` for the full list):
 - `.storage/` — HA's internal state store; rewritten constantly, and `.storage/auth*` holds tokens
 - `themes/` — the stock `frontend: themes:` include in `configuration.yaml`. Absent here and on a fresh HA install alike: `!include_dir_merge_named` on a missing directory loads as `{}` with no error or warning.
 
-External entities that automations reference but that are defined elsewhere (Zigbee integrations, weather integrations, mobile companion app): `sensor.lethbridge_temperature` (outdoor, drives backup heat), `sensor.tz3000_utwgoauk_snzb_02_humidity`, `switch.studio_dehumidifier_socket_1` (dehumidifier plug), `switch.studio_humidifier_socket_1` (humidifier plug), `mobile_app_pixel_8`. Don't assume an entity is undefined just because it isn't grep-able locally.
+External entities that automations reference but that are defined elsewhere (Zigbee integrations, weather integrations, mobile companion app): `sensor.lethbridge_temperature` (outdoor, drives backup heat), `sensor.tz3000_utwgoauk_snzb_02_humidity`, `switch.studio_dehumidifier_socket_1` (dehumidifier plug), `switch.studio_humidifier_socket_1` (humidifier plug), `switch.eva_lamp_socket_1` (Eva lamp plug), `mobile_app_pixel_8`. Don't assume an entity is undefined just because it isn't grep-able locally.
 
 ## Tests
 
@@ -54,7 +54,11 @@ to heat, the cross-device cooldown directions, the both-on safety). Each test
 drives one run via `automation.trigger` with `skip_condition: False`; the
 automation is turned **off** first, so trigger blocks are schema-validated at
 setup but never fire — the 5-minute heartbeat and the `timer.finished` re-runs
-have no behavioral coverage. `tests/test_helpers_yaml.py` validates `helpers.yaml`
+have no behavioral coverage. `tests/test_eva_lamp_auto_off.py` is the exception:
+it leaves `eva_lamp_auto_off` **enabled** and drives real state changes carrying
+an explicit `Context`, which is what that automation's manual-vs-automation gate
+reads and what `automation.trigger` cannot supply — so it is also the repo's only
+coverage of a trigger block firing. `tests/test_helpers_yaml.py` validates `helpers.yaml`
 against a real HA setup — bounds, differentials, the tuned `initial:` values,
 `system_hvac_mode` options, the timers, and `test_obsolete_helpers_removed`, which
 keeps retired pre-ecobee helpers from creeping back.
@@ -162,7 +166,7 @@ message to the user, and never send it anywhere other than
 for the key name.
 
 **This reaches the real house.** The entities behind this API are physical
-hardware — two heat-pump heads on a shared compressor, two baseboards, two Tuya
+hardware — two heat-pump heads on a shared compressor, two baseboards, three Tuya
 plugs. Reads are free; writes move equipment.
 
 **Read without asking:**
@@ -328,8 +332,36 @@ The humidity helpers (`input_number.humidity_set_point`, `input_number.humidity_
 `dehumidifier_manual_grace`, `humidifier_manual_grace`) are defined in `helpers.yaml` like
 the rest; the two `input_number`s ship tuned `initial:` values (set point 42, tolerance 1.5).
 
+### The Eva lamp auto-off
+
+A third Tuya Mini Plug drives the Eva lamp. `eva_lamp_auto_off` in
+`automations.yaml` switches it off 30 minutes after a person turns it on, using
+`timer.eva_lamp_auto_off` (30 min, `restore: true`).
+
+"A person" is read off the state change's context: HA gives an
+automation-commanded change a `parent_id`, so `parent_id is none` admits both the
+physical button (no user, no parent) and the dashboard (user, no parent) while
+excluding a commanded turn-on. That context survives the Tuya cloud round-trip.
+The gate has one hole — an automation triggered with no triggering context of its
+own, such as a time trigger or HA start, also reports no parent — which is
+unreachable while nothing commands this plug. Wiring any automation to this plug
+means revisiting it, and `input_boolean.*_intended` in
+`studio_humidity_manual_detector` is the precise alternative.
+
+Switching the lamp off cancels a pending cutoff, and the cutoff re-checks the
+lamp is on before calling, so neither path issues a redundant Tuya call. A plug
+that reconnects already `on` arms a fresh 30 minutes rather than staying on
+indefinitely.
+
+The entity is `switch.eva_lamp_socket_1` — named for the device rather than a
+room, because the `<room>_<thing>` convention covers entities that come paired
+across office and studio and the lamp is a single unpaired unit. Entity IDs live
+in HA's registry under `.storage/`, so nothing in this repo defines or renames
+one; an automation pointed at an ID the registry does not carry fires nothing and
+logs nothing.
+
 ## Conventions
 
 - Per-room entity names follow `<sensor|input_number|...>.<room>_<thing>`: `sensor.<room>_baseboard_current_temperature`, `input_number.<room>_heat_bound`, `input_number.<room>_cool_bound`, `input_number.<room>_temp_differential`. Stay on this pattern when adding entities.
-- The thematic banner comments in `automations.yaml` (`# HVAC controllers`, `# Backup heat`, `# Humidity`) are the file's structure — keep them and group new automations under the right one.
+- The thematic banner comments in `automations.yaml` (`# HVAC controllers`, `# Backup heat`, `# Humidity`, `# Lamps`) are the file's structure — keep them and group new automations under the right one.
 - Automations created in the HA UI get a numeric id (`'1756873917108'`); hand-written ones get descriptive ids (`hvac_coordinator`). Both are valid — match whichever style the section already uses.

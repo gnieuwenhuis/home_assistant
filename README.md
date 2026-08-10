@@ -100,6 +100,17 @@ humidifier and dehumidifier:
 
 It's independent of the heating/cooling system.
 
+## The Eva lamp
+
+The Eva lamp runs off a Tuya plug that switches itself off 30 minutes after
+anyone turns it on — whether from the button on the plug or from the Home
+Assistant dashboard. Turning it off early cancels the pending switch-off, and
+turning it on again always gives a fresh 30 minutes rather than the remainder of
+the last one.
+
+There is no way to run it indefinitely short of disabling the
+`Eva Lamp Auto Off` automation.
+
 ## How you interact with it
 
 Everything is driven by Home Assistant **helpers** (the per-room bounds, the
@@ -170,6 +181,12 @@ The only exception is the safety that stops both running at once.
 the hysteresis is asymmetric: `tolerance` decides where a device *starts*, the set
 point is where it *stops*. Widening the tolerance will not lower the stop point.
 
+**The Eva lamp switched itself off / went off after a reboot.**
+Working as designed — it switches off 30 minutes after being turned on. A plug
+that drops offline and reconnects while still on counts as a turn-on and starts
+a fresh 30 minutes, which is why an unreliable connection can look like a lamp
+that switches off at odd times.
+
 **You edited `custom_templates/hvac.jinja` and nothing changed.** Home Assistant
 holds custom Jinja in memory. Reloading automations or template entities does not
 re-read the file and raises no error — the old macro just keeps running. Call
@@ -204,7 +221,7 @@ restart leaves Home Assistant running the bad config from memory.
 | Path | What it is |
 |------|------------|
 | `configuration.yaml` | Root HA config: template sensors, integrations, the thermostat-tile entities |
-| `automations.yaml` | All automations: the HVAC coordinator, backup heat, humidity |
+| `automations.yaml` | All automations: the HVAC coordinator, backup heat, humidity, the Eva lamp auto-off |
 | `custom_templates/hvac.jinja` | The pure decision logic for the coordinator (heat/cool/idle), unit-tested |
 | `helpers.yaml` | The input numbers / booleans / timers (bounds, master switch, etc.) |
 | `tests/` | `pytest` suite covering the control logic |
@@ -267,7 +284,7 @@ that override is also the way through a GitHub Actions outage.
 The reset replaces tracked files only. `secrets.yaml`, `.storage/`, the HACS
 `custom_components/` and `www/community/` are gitignored and survive every pull.
 
-Two consequences worth knowing before you edit anything:
+Three consequences worth knowing before you edit anything:
 
 **The box is read-only for tracked files.** A hand-edit to `automations.yaml` in
 File Editor or Studio Code Server changes nothing until something reloads it, and
@@ -279,6 +296,12 @@ it here, open a PR, let it merge.
 **Adding a secret is a box-first operation.** Put the real value in
 `secrets.yaml` on the host *before* merging the change that references it.
 The reverse order starts HA into a failure.
+
+**Renaming an entity is a box-first operation.** Entity IDs live in Home
+Assistant's own registry, not in this repo, so nothing here can rename one.
+Rename it under Settings → Devices & services → Entities *before* merging the
+change that references the new name — the reverse order leaves an automation
+pointed at an entity that does not exist, which fires nothing and logs nothing.
 
 ### Rolling back
 
