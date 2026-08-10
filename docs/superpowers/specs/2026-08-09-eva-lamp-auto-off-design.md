@@ -32,14 +32,22 @@ The plug keeps its Tuya device identity but is renamed:
 
 | | Before | After |
 |---|---|---|
+| Device name | Rabbitry Heater | Eva Lamp |
 | Entity ID | `switch.rabbitry_heater_socket_1` | `switch.eva_lamp_socket_1` |
-| Friendly name | Rabbitry Heater Socket 1 | Eva Lamp |
+| Display name | Rabbitry Heater Socket 1 | Eva Lamp Socket 1 |
 
-Entity IDs live in HA's entity registry under `.storage/`, which is gitignored,
-so this rename **cannot be made from this repo**. It is a manual host-side step,
-the same shape as the helpers migration: Settings → Devices & services →
-Entities → rename. Until it is done, the automation below targets an entity ID
-that does not exist and silently never fires.
+The display name is not stored on the entity. The Tuya entity carries the
+original name `Socket 1` and no name of its own, so what HA shows is the device
+name followed by that — which is why renaming the device is what carries the
+display name, and why the result matches the two studio plugs
+("Studio Dehumidifier Socket 1"). Setting a name on the entity instead would
+leave the device reading `Rabbitry Heater` in every device-scoped view.
+
+Both registries live under `.storage/`, which is gitignored, so this rename
+**cannot be made from this repo**. It is a host-side step, the same shape as the
+helpers migration: Settings → Devices & services → rename the device, then its
+entity. Until it is done, the automation below targets an entity ID that does
+not exist and silently never fires.
 
 The name breaks the repo's `<domain>.<room>_<thing>` convention. That convention
 exists for the per-room HVAC and humidity entities, which are paired across
