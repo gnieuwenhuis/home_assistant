@@ -62,3 +62,10 @@ async def test_obsolete_helpers_removed(hass_helpers):
         "timer.changeover_hold",
     ):
         assert hass_helpers.states.get(ent) is None, ent
+
+
+async def test_eva_lamp_auto_off_timer(hass_helpers):
+    s = hass_helpers.states.get("timer.eva_lamp_auto_off")
+    assert s is not None
+    assert s.attributes["duration"] == "0:30:00"
+    assert s.attributes["restore"] is True
