@@ -241,8 +241,11 @@ immediately on boot; all timers use `restore: true`, so lockouts, cooldowns and
 the mode dwell carry across; and the 5-minute heartbeat backs both up. A restart
 during an active lockout still honours it.
 
-The cost is 30–60 seconds per deploy with no HVAC or humidity control, and the
-risk that an invalid config means HA does not come back at all.
+The cost is 30–60 seconds per deploy with no HVAC or humidity control, and two
+failure modes. A config the add-on's pre-restart check catches leaves a split
+state: `/config` on the new commit, HA still running the previous config from
+memory, and the next poll finding nothing changed. A fault that check misses is
+the one where HA restarts and does not come back.
 
 ### Add-on configuration
 

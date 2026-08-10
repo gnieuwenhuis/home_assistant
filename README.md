@@ -185,6 +185,12 @@ five minutes and the restart itself costs about a minute. Documentation-only
 commits pull without restarting anything; `restart_ignore` in the add-on config
 lists what is exempt.
 
+**I merged a config change and nothing happened.** The add-on runs Home
+Assistant's config check before restarting, and returns without restarting when
+it fails: `/config` holds the new commit, Home Assistant keeps running the
+previous config from memory, and the next poll finds nothing changed. Read the
+add-on log and grep for `does not pass the config check`.
+
 **It broke right after a merge.** Roll back before diagnosing — see "Rolling
 back". Stopping the add-on is the first step, and a reset in `/config` without a
 restart leaves Home Assistant running the bad config from memory.
@@ -288,7 +294,8 @@ Studio Code Server add-on, or SSH.
 
    Stopping first is what keeps the next poll from undoing the reset. Reset
    `/config` to the commit you want, then restart from Developer Tools → Actions
-   → `homeassistant.restart`; the files on disk change nothing until Home
+   → `homeassistant.restart`, or `ha core restart` from the host shell when Home
+   Assistant is already down; the files on disk change nothing until Home
    Assistant re-reads them. `homeassistant.reload_all` is the lighter option when
    HA is still up and the revert touches only automations, templates and custom
    templates.
@@ -296,13 +303,19 @@ Studio Code Server add-on, or SSH.
 2. **Revert on `main`** — a PR, a CI cycle. The durable fix, but slower.
 
 Start the add-on again only once the revert is on `main`. It syncs the instant it
-starts, before its first sleep, so an early start throws the rollback away — and
-because the commit ids differ, restarts Home Assistant back into the bad config.
+starts, before its first sleep, so an early start throws the rollback away and
+puts the bad commit back on disk, restarting Home Assistant into it if it passes
+the config check.
 
 ```sh
 ha addons start core_git_pull
-cd /config && git fetch && git diff origin/main --stat   # empty output: in sync
+ha addons info core_git_pull                  # state: started
+cd /config && git fetch && git rev-parse HEAD origin/main   # two identical shas
 ```
+
+Compare the shas, not the files: a revert's tree matches the commit you rolled
+back to, so `git diff origin/main` is empty whether the add-on synced or never
+started.
 
 The add-on ships `boot: manual`, so a stopped add-on stays stopped across a
 reboot. Until it is started, merges to `main` reach nothing and the box shows no
