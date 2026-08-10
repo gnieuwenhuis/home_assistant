@@ -334,8 +334,9 @@
 # Humidity
 # ------------------------------------------------------------
 # One state-driven controller reconciles the studio humidifier
-# and dehumidifier from the current humidity level (it replaced
-# four edge-triggered on/off automations). It:
+# and dehumidifier from the current humidity level. Reconciling
+# from the reading rather than from threshold crossings is what
+# makes a missed crossing harmless: nothing is stranded on. It:
 #   - never lets both run at once (mutual-exclusion safety),
 #   - arms a 30-min cooldown when it turns a device off, which
 #     blocks the OPPOSITE device from starting (never its own),
