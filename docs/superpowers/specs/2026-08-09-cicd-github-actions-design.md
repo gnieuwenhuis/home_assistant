@@ -241,8 +241,11 @@ immediately on boot; all timers use `restore: true`, so lockouts, cooldowns and
 the mode dwell carry across; and the 5-minute heartbeat backs both up. A restart
 during an active lockout still honours it.
 
-The cost is 30–60 seconds per deploy with no HVAC or humidity control, and the
-risk that an invalid config means HA does not come back at all.
+The cost is 30–60 seconds per deploy with no HVAC or humidity control, and two
+failure modes. A config the add-on's pre-restart check catches leaves a split
+state: `/config` on the new commit, HA still running the previous config from
+memory, and the next poll finding nothing changed. A fault that check misses is
+the one where HA restarts and does not come back.
 
 ### Add-on configuration
 
@@ -264,10 +267,15 @@ restart_ignore:
   - ha-version.txt
   - secrets.yaml.example
   - .env.example
-repeat: {active: true, interval: 5}
+  - .yamllint.yml
+repeat: {active: true, interval: 300}
 ```
 
 `restart_ignore` does real work: without it a README typo restarts HVAC control.
+
+`repeat.interval` is in **seconds** — the add-on documents it as "the interval in
+seconds to poll the repo" — so the five-minute poll this design assumes is `300`,
+not `5`.
 
 ### One-time host setup
 

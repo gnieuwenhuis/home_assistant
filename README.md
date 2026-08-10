@@ -179,9 +179,25 @@ re-read the file and raises no error — the old macro just keeps running. Call
 add-on reverts `/config` to `main` every five minutes. Make the change in the
 repository instead — see "How changes reach the box".
 
-**Home Assistant restarted on its own.** Also expected, if a commit landed on
-`main` in the last five minutes. Documentation-only commits do not restart it;
-`restart_ignore` in the add-on config lists what is exempt.
+**Home Assistant restarted on its own.** Also expected, within about six minutes
+of a commit landing on `main` that touches a config file — the add-on polls every
+five minutes and the restart itself costs about a minute. Documentation-only
+commits pull without restarting anything; `restart_ignore` in the add-on config
+lists what is exempt.
+
+**I merged a config change and nothing happened.** The add-on runs Home
+Assistant's config check before restarting, and returns without restarting when
+it fails: `/config` holds the new commit, Home Assistant keeps running the
+previous config from memory, and the next poll finds nothing changed. Read the
+add-on log and grep for `does not pass the config check`, or reproduce the
+failure on demand with `ha core check`, which runs against whatever `/config`
+holds now. If neither shows anything, check the add-on is running:
+`ha addons info core_git_pull` (`state: started`). It ships `boot: manual` and
+stays stopped across a reboot.
+
+**It broke right after a merge.** Roll back before diagnosing — see "Rolling
+back". Stopping the add-on is the first step, and a reset in `/config` without a
+restart leaves Home Assistant running the bad config from memory.
 
 ## Repository layout
 
@@ -195,9 +211,10 @@ repository instead — see "How changes reach the box".
 | `ha-version.txt` | The Home Assistant release the box runs; the test harness is pinned and asserted against it |
 | `.yamllint.yml` | yamllint rules for the three hand-edited HA config files |
 | `.github/workflows/ci.yml` | CI: yamllint, actionlint and the test suite, on every pull request and on `main` |
+| `.github/rulesets/main.json` | The branch-protection payload applied to `main`, kept as a record of what was applied |
 | `.env.example` | Template for the gitignored `.env` holding your Home Assistant API token |
 | `docs/superpowers/specs/` | Dated design docs, oldest first. Start with `2026-06-15-ecobee-style-hvac-design.md`; it supersedes the earlier changeover-advisor and steering-loop designs. |
-| `docs/superpowers/plans/` | Implementation plans, one per design. Mostly history rather than a queue; the `- [ ]` boxes were never ticked and mean nothing. Do not re-execute one. The exception is `2026-08-09-cicd-github-actions.md`, whose host-setup task is genuinely outstanding — see "How changes reach the box". |
+| `docs/superpowers/plans/` | Implementation plans, one per design. History rather than a queue; the `- [ ]` boxes were never ticked and mean nothing. Do not re-execute one. |
 | `CLAUDE.md` | Conventions and guidance for working in this repo |
 
 Some devices and sensors are provided by HACS custom integrations (Cielo Home,
@@ -219,25 +236,45 @@ See `CLAUDE.md` for the full setup, conventions, and the helper-migration notes.
 
 ## How changes reach the box
 
-**Not active yet.** Everything in this section starts applying once the Git
-pull add-on is installed on the Home Assistant host. Until then a merge to
-`main` reaches nothing: changes get to the box by copying the files across and
-reloading by hand.
+This config deploys itself. An edit becomes live configuration by way of `main`:
 
-This config deploys itself. The Home Assistant **Git pull add-on** checks
-`main` every five minutes, hard-resets `/config` to it, and restarts Home
-Assistant. Changes reach the hardware without a manual sync.
+| Stage | What happens | How long |
+|------|--------------|----------|
+| Pull request | Two required checks run: `lint` (yamllint over the three hand-edited config files, actionlint over the workflows) and `test` (the pytest suite on Python 3.14) | ~15 s / ~70 s |
+| Merge | Squash only, linear history, both checks green and up to date with `main` | — |
+| Poll | The Home Assistant **Git pull add-on** fetches `main` and hard-resets `/config` to it | every 5 min |
+| Restart | Home Assistant restarts, unless every changed path sits in the add-on's `restart_ignore` — `docs/`, `tests/`, `.github/`, and the non-config root files including this README | ~1 min down |
 
-Three consequences worth knowing before you edit anything:
+A config change is therefore live within about six minutes of the merge — the
+poll wait is anything from zero to five minutes — with about a minute of no
+heating, cooling or humidity control in the middle. Both coordinators reconcile
+on startup and every timer restores, so the system picks up where it left off.
 
-**The box is read-only for tracked files.** Editing `automations.yaml` in File
-Editor or Studio Code Server works for about five minutes, then the add-on
-reverts it. Change it here, open a PR, let it merge.
+A config that fails Home Assistant's own check does not take the box down. The
+add-on runs that check before restarting and returns without restarting when it
+fails, which leaves a split state: `/config` on disk holds the bad commit, Home
+Assistant keeps running the previous config from memory, and the next poll finds
+no new commit, logs "Nothing has changed" and never re-checks. The box holds
+there until some unrelated restart, which then fails with no recent change to
+blame. Two signals: the add-on log carries `does not pass the config check` at
+the poll it happens, and `ha core check` reproduces the failure afterwards
+against whatever `/config` holds. A fault the check misses is the worse case: Home Assistant restarts and
+does not come back. Both are why `main` is gated on CI.
 
-**A deploy restarts Home Assistant.** Roughly 30–60 seconds with no heating,
-cooling or humidity control. Both coordinators re-run on startup and all timers
-restore, so the system reconciles itself — but an invalid config means HA does
-not come back at all, which is why `main` is gated on CI.
+A repository admin can merge a red pull request; it deploys like any other, and
+that override is also the way through a GitHub Actions outage.
+
+The reset replaces tracked files only. `secrets.yaml`, `.storage/`, the HACS
+`custom_components/` and `www/community/` are gitignored and survive every pull.
+
+Two consequences worth knowing before you edit anything:
+
+**The box is read-only for tracked files.** A hand-edit to `automations.yaml` in
+File Editor or Studio Code Server changes nothing until something reloads it, and
+the next poll's reset discards the file. Reload it and the effect *outlives* the
+file: the reset creates no new commit, so the add-on returns early and nothing
+restarts, and the box goes on running behaviour that no file on it shows. Change
+it here, open a PR, let it merge.
 
 **Adding a secret is a box-first operation.** Put the real value in
 `secrets.yaml` on the host *before* merging the change that references it.
@@ -245,15 +282,50 @@ The reverse order starts HA into a failure.
 
 ### Rolling back
 
-**Do not roll back on the box.** A `git reset` in `/config` is undone within
-five minutes when the add-on re-pulls `main`. Either:
+**A reset in `/config` alone is not a rollback.** The next poll undoes it, and
+until something restarts Home Assistant it goes on running the bad configuration
+from memory. Do (1) to stop the bleeding, then (2) to make it stick.
 
-1. **Stop the Git pull add-on first**, then reset `/config`. Fastest under
-   pressure, and the box stays put until you restart the add-on.
-2. **Revert on `main`** — a PR, a CI cycle, then the add-on picks it up. The
-   durable fix, but slower.
+The Supervisor panel 404s on this box — `Settings → Add-ons` and
+`/hassio/dashboard` are unavailable, though Supervisor itself is healthy — so the
+add-on is driven with the `ha` CLI from a shell on the host: the Terminal or
+Studio Code Server add-on, or SSH.
 
-Do (1) to stop the bleeding, then (2) to make it stick.
+1. **Stop the add-on, reset `/config`, restart Home Assistant** — in that order.
+
+   ```sh
+   ha addons stop core_git_pull      # before touching /config
+   ```
+
+   Stopping first is what keeps the next poll from undoing the reset. Reset
+   `/config` to the commit you want, then restart from Developer Tools → Actions
+   → `homeassistant.restart`, or `ha core restart` from the host shell when Home
+   Assistant is already down; the files on disk change nothing until Home
+   Assistant re-reads them. `homeassistant.reload_all` is the lighter option when
+   HA is still up and the revert touches only automations, templates and custom
+   templates.
+
+2. **Revert on `main`** — a PR, a CI cycle. The durable fix, but slower.
+
+Start the add-on again only once the revert is on `main`. It syncs the instant it
+starts, before its first sleep, so an early start throws the rollback away and
+puts the bad commit back on disk, restarting Home Assistant into it if it passes
+the config check.
+
+```sh
+ha addons start core_git_pull
+ha addons info core_git_pull                  # state: started
+cd /config && git fetch && git rev-parse HEAD origin/main   # two identical shas
+```
+
+Compare the shas, not the files: a revert's tree matches the commit you rolled
+back to, so `git diff origin/main` is empty whether the add-on synced or never
+started. The add-on syncs within seconds of starting, so re-run the comparison
+before concluding it failed.
+
+The add-on ships `boot: manual`, so a stopped add-on stays stopped across a
+reboot. Until it is started, merges to `main` reach nothing and the box shows no
+symptom of it.
 
 ## Talking to the live Home Assistant
 
