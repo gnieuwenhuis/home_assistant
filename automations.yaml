@@ -540,3 +540,65 @@
         target:
           entity_id: timer.humidifier_manual_grace
   mode: queued
+
+# ============================================================
+# Lamps
+# ------------------------------------------------------------
+# The Eva lamp's plug switches itself off 30 minutes after a
+# person turns it on. Home Assistant attaches a context to every
+# state write, and only an automation-commanded change carries a
+# parent_id — so a single `parent_id is none` check admits both
+# the physical button (no user, no parent) and the dashboard
+# (user, no parent) while excluding a commanded turn-on. An
+# automation triggered with no triggering context of its own (a
+# time trigger, or HA start) also reports no parent and would
+# read as human; nothing commands this plug, so that gate is
+# unreachable. Switching the lamp off cancels the pending cutoff,
+# and the cutoff re-checks the lamp is on, so neither path fires
+# a redundant call at the Tuya cloud.
+# ============================================================
+
+- id: eva_lamp_auto_off
+  alias: Eva Lamp Auto Off
+  description: >-
+    Switch the Eva lamp off 30 minutes after a person turns it on. The physical
+    button and the Home Assistant UI both arm the cutoff; a turn-on commanded by
+    an automation does not. Switching the lamp off cancels a pending cutoff.
+  triggers:
+  - trigger: state
+    entity_id: switch.eva_lamp_socket_1
+    to: 'on'
+    id: manual_on
+  - trigger: state
+    entity_id: switch.eva_lamp_socket_1
+    to: 'off'
+    id: lamp_off
+  - trigger: event
+    event_type: timer.finished
+    event_data:
+      entity_id: timer.eva_lamp_auto_off
+    id: timer_done
+  actions:
+  - choose:
+    # Jinja `and` short-circuits, so trigger.to_state is only read on the
+    # branch whose trigger actually carries one.
+    - conditions: >-
+        {{ trigger.id == 'manual_on'
+           and trigger.to_state.context.parent_id is none }}
+      sequence:
+      - action: timer.start
+        target:
+          entity_id: timer.eva_lamp_auto_off
+    - conditions: "{{ trigger.id == 'lamp_off' }}"
+      sequence:
+      - action: timer.cancel
+        target:
+          entity_id: timer.eva_lamp_auto_off
+    - conditions: >-
+        {{ trigger.id == 'timer_done'
+           and is_state('switch.eva_lamp_socket_1', 'on') }}
+      sequence:
+      - action: switch.turn_off
+        target:
+          entity_id: switch.eva_lamp_socket_1
+  mode: queued
