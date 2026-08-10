@@ -189,7 +189,11 @@ lists what is exempt.
 Assistant's config check before restarting, and returns without restarting when
 it fails: `/config` holds the new commit, Home Assistant keeps running the
 previous config from memory, and the next poll finds nothing changed. Read the
-add-on log and grep for `does not pass the config check`.
+add-on log and grep for `does not pass the config check`, or reproduce the
+failure on demand with `ha core check`, which runs against whatever `/config`
+holds now. If neither shows anything, check the add-on is running:
+`ha addons info core_git_pull` (`state: started`). It ships `boot: manual` and
+stays stopped across a reboot.
 
 **It broke right after a merge.** Roll back before diagnosing — see "Rolling
 back". Stopping the add-on is the first step, and a reset in `/config` without a
@@ -315,7 +319,8 @@ cd /config && git fetch && git rev-parse HEAD origin/main   # two identical shas
 
 Compare the shas, not the files: a revert's tree matches the commit you rolled
 back to, so `git diff origin/main` is empty whether the add-on synced or never
-started.
+started. The add-on syncs within seconds of starting, so re-run the comparison
+before concluding it failed.
 
 The add-on ships `boot: manual`, so a stopped add-on stays stopped across a
 reboot. Until it is started, merges to `main` reach nothing and the box shows no
