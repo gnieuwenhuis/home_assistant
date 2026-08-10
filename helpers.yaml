@@ -156,3 +156,11 @@ timer:
     name: Studio Head Lockout
     duration: "00:06:00"
     restore: true
+
+  # Auto-off for the Eva lamp: armed by any human turn-on, cancelled when the
+  # lamp is switched off. restore: true carries a running cutoff across a
+  # restart, so a lamp switched on before a reboot still goes off on schedule.
+  eva_lamp_auto_off:
+    name: Eva Lamp Auto Off
+    duration: "00:30:00"
+    restore: true
