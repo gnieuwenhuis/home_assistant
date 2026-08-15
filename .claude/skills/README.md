@@ -1,8 +1,14 @@
 # Skills
 
-Five project-specific skills, each a declarative `SKILL.md` — no Python
+Seven project-specific skills, each a declarative `SKILL.md` — no Python
 scripts, no step counters, nothing to invoke. Claude reads the phases in the
 file directly.
+
+Five are analysis workflows, documented below in Trigger / Inspects / Outputs
+form. The last two — `ha-websocket-api` and `ha-hacs-restore` — are reference
+skills instead: they hold Home Assistant material that only matters while
+performing one specific task, kept out of the always-loaded root CLAUDE.md so it
+loads on demand.
 
 For which system owns which workflow — this repo's skills vs. the
 superpowers plugin — see [`../README.md`](../README.md#division-of-labor).
@@ -140,3 +146,26 @@ found 6 of 6 empirically-established defects plus 5 more.
 ```
 Use your prompt engineer skill on .claude/agents/developer.md
 ```
+
+## ha-websocket-api
+
+**Trigger:** Home Assistant state that REST does not expose — renaming an
+`entity_id` or a device, reading or writing a Lovelace dashboard config or the
+energy dashboard prefs, or checking a sensor's recorder statistic metadata.
+
+**Holds:** the `api/websocket` auth handshake and message-id protocol, the
+read-without-asking message list, the four writes that need the user's approval
+every time, `search/related`'s Lovelace blind spot, and the two connection
+gotchas — aiodns cannot resolve mDNS `.local`, and `homeassistant.local`'s AAAA
+records refuse connections intermittently.
+
+The root CLAUDE.md keeps the approval rule resident; the protocol lives here.
+
+## ha-hacs-restore
+
+**Trigger:** rebuilding the instance from scratch, or checking which custom
+integrations the tracked config depends on but does not vendor.
+
+**Holds:** the four HACS packages (`neviweb130`, `cielo_home`, Climate Template,
+apexcharts-card) with what each provides, and why the Lovelace dashboards cannot
+be restored from this repo at all.

@@ -14,6 +14,10 @@
 !skills/README.md
 !skills/decision-critic/
 !skills/decision-critic/**
+!skills/ha-hacs-restore/
+!skills/ha-hacs-restore/**
+!skills/ha-websocket-api/
+!skills/ha-websocket-api/**
 !skills/doc-sync/
 !skills/doc-sync/**
 !skills/incoherence/

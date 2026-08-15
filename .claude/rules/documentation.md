@@ -15,8 +15,24 @@ context tax charged on every turn, to do what `Glob` and `Grep` already do.
 
 The root file is a project instruction file — setup, commands, architecture,
 gotchas, and agent-facing policy. It is **not** a navigation index; do not
-convert it into one, and do not migrate its prose out into README files. If a
-directory needs explaining, that is a README.
+convert it into one. If a directory needs explaining, that is a README.
+
+**Where a passage belongs is decided by audience, not by which file it currently
+sits in.** Operator runbook material — driving the box, rolling back, what a
+stage costs — belongs in the root README even when CLAUDE.md is where it was
+written, and CLAUDE.md then carries the shortest pointer plus whatever the
+operator view leaves out. Two limits on that move:
+
+- **Never point at prose that does not exist yet.** Relocating means writing the
+  passage into its destination in the same change, not deleting it and trusting a
+  reference to carry the meaning.
+- **Mechanism stays.** A README describes behaviour at operator altitude; an
+  agent editing the code needs macro signatures, entity IDs, and evaluation-order
+  constraints. Where the two overlap in subject but not in altitude, that is not
+  duplication and CLAUDE.md keeps its copy.
+
+A passage the README already states independently is a different case: deleting
+it from CLAUDE.md is deduplication, and needs no relocation.
 
 ## README.md
 

@@ -6,23 +6,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A **Home Assistant configuration** for a two-room space (office + studio), versioned in git. The goal is to mirror the live HA configuration here, with the exceptions called out below.
 
-Tracked:
+README's **Repository layout** table lists every tracked path. What it does not
+say, and what matters here:
 
-- `configuration.yaml` — root HA config, template sensors, `neviweb130` integration, notify group
-- `automations.yaml` — all automations (HVAC coordinator, backup heat, humidity, the Eva lamp auto-off)
-- `scripts.yaml`, `scenes.yaml` — included from `configuration.yaml`; currently empty
-- `custom_templates/hvac.jinja` — the heat-pump coordinator decision macros
-- `tests/`, `pytest.ini`, `requirements-dev.txt` — pytest harness (see "Tests")
 - `ha-version.txt` — the HA release the live box runs, on one bare line. `tests/test_version_pin.py` asserts the `requirements-dev.txt` pin, its comment, and the *installed* harness all agree with it.
-- `.yamllint.yml`, `.github/workflows/ci.yml` — the CI gate: yamllint over the three hand-edited config files, actionlint over the workflows, and the test suite
-- `.github/rulesets/main.json` — the branch-protection payload applied to `main`, kept as a record of what was applied (see "Deployment")
-- `helpers.yaml` — `input_number` / `input_boolean` / `input_select` / `timer` definitions; wired into `configuration.yaml` as a package (see "Helpers migration" below)
-- `secrets.yaml.example` — placeholder showing which `!secret` keys must exist
-- `.env.example` — placeholder for the repo-root `.env` (see "Live Home Assistant API access")
-- `docs/superpowers/specs/`, `docs/superpowers/plans/` — design docs and implementation plans (see below)
-- `README.md` — human-facing overview of the space and the control model; its **Troubleshooting** section indexes the states that look like faults but aren't (timers mid-run, the mode helper vs. a running head, the coordinator short-circuiting on an unavailable entity) — start there when a symptom is reported
+- `helpers.yaml` — wired into `configuration.yaml` as a package, not per-domain includes (see "Helpers migration" below)
+- `README.md` — its **Troubleshooting** section indexes the states that look like faults but aren't (timers mid-run, the mode helper vs. a running head, the coordinator short-circuiting on an unavailable entity) — start there when a symptom is reported
 - `blueprints/` — HA's stock shipped blueprints, untouched
-- `.gitignore` — the exclusion list the next section summarizes
 
 `docs/superpowers/specs/` and `docs/superpowers/plans/` are the dated design record.
 Every plan there is merged and none of their `- [ ]` checkboxes are ticked, so
@@ -86,62 +76,38 @@ if the config is invalid).
 
 ## Deployment
 
-`main` is what the box runs. The **Git pull add-on** (`core_git_pull`) on the HA
-host polls `main` every five minutes, hard-resets `/config` to it, and restarts
-HA unless every changed path sits in `restart_ignore` (`.github/`, `docs/`,
-`tests/`, and the non-config root files). A merged config change is therefore on
-live hardware within about six minutes, reviewed by nothing but CI. The add-on's
-`repeat.interval` is in **seconds** (`300`) — a bare `5` would re-checkout
-`/config` twelve times a minute. README's "How changes reach the box" holds the
-operator view: what each stage costs, what survives the reset, and the box-first
-rule for new `!secret` keys.
+`main` is what the box runs, and a merged config change reaches live hardware on
+the Git pull add-on's next poll, reviewed by nothing but CI. README's **How
+changes reach the box** holds the mechanism: the stage timings, what survives the
+reset, the box-first rules for `!secret` keys and entity renames, and the
+split-state failure a deploy shows when HA's config check rejects the new commit.
+**Read that section before changing anything that deploys.** Its **Rolling back**
+subsection covers driving the add-on from the host, including the Supervisor
+panel 404 and the add-on quirks (`ha addons` has no `options` subcommand;
+`repository` is compared to `origin` as a literal string).
 
-The merge gate is the ruleset on `main`, active, GitHub's id `20613372`. Its
-payload is recorded in `.github/rulesets/main.json`: `deletion`,
-`non_fast_forward`, `required_linear_history`, `pull_request` (squash-only, zero
-approvals) and `required_status_checks` on `lint` and `test`, strict. That file
-records what was applied and nothing keeps it in step afterwards — read the live
-rules with `gh api repos/gnieuwenhuis/home_assistant_config/rulesets/20613372`.
-**Those two contexts are the job names in `.github/workflows/ci.yml`** — renaming
-a job disarms the gate silently until the ruleset is updated to match. The one
-bypass actor is the repository-admin role in
-`pull_request` mode: it blocks direct pushes to `main` while still permitting a
-deliberate merge of a red PR, which is also the way through a GitHub Actions
-outage. (yamllint ships preinstalled on `ubuntu-latest`, so the `pipx install
-yamllint` step is a no-op there.)
+Two agent-facing points README does not carry:
+
+- Read drift as `git diff origin/main`, explicitly. A bare `git diff` compares
+  against `HEAD`, which can sit on an old commit and read as "in sync" while the
+  working tree is many files behind. Either spelling proves file drift, not
+  runtime drift: a hand-edit that was reloaded before the reset discarded it
+  leaves the running instance ahead of every file on disk.
+- The add-on's `repeat.interval` is in **seconds** (`300`) — a bare `5` would
+  re-checkout `/config` twelve times a minute.
+
+The merge gate is the ruleset on `main`, active, GitHub's id `20613372`, its
+payload recorded in `.github/rulesets/main.json`. That file records what was
+applied and nothing keeps it in step afterwards — read the live rules with `gh
+api repos/gnieuwenhuis/home_assistant_config/rulesets/20613372`. **The two
+required contexts are the job names in `.github/workflows/ci.yml`** — renaming a
+job disarms the gate silently until the ruleset is updated to match.
 
 The design in `docs/superpowers/specs/2026-08-09-cicd-github-actions-design.md`
 also specifies a `workflows` rule pinning `.github/workflows/ci.yml` by path.
 GitHub rejects it with a `422` on this repository: Required Workflows is an
 organization-level feature and this repository is user-owned. It is unavailable
 rather than misconfigured — the call cannot succeed, so don't retry it.
-
-Working on the box itself:
-
-- The Supervisor **panel 404s** here — `Settings → Add-ons` and
-  `/hassio/dashboard` are both unavailable, though Supervisor itself is healthy.
-  Add-ons are driven with the `ha` CLI from a shell on the host — the Terminal or
-  Studio Code Server add-on, or SSH.
-- `ha addons` has no `options` subcommand. Add-on configuration goes through
-  `POST http://supervisor/addons/<slug>/options` with
-  `Authorization: Bearer $SUPERVISOR_TOKEN`, and that POST is a **full replace**:
-  omitting a schema-required key (`deployment_user`, for one) rejects the entire
-  payload.
-- The add-on compares its `repository` option against the checkout's `origin` URL
-  as a **literal string** and refuses to start on any mismatch, so a repository
-  rename needs `git remote set-url` in `/config`.
-- Read drift as `git diff origin/main`, explicitly. A bare `git diff` compares
-  against `HEAD`, which can sit on an old commit and read as "in sync" while the
-  working tree is many files behind. Either spelling proves file drift, not
-  runtime drift: a hand-edit that was reloaded before the reset discarded it
-  leaves the running instance ahead of every file on disk.
-- A pull whose result fails HA's config check leaves a **split state**. The
-  add-on runs that check before restarting and returns without restarting when it
-  fails, so `/config` holds the new commit while HA runs the previous config from
-  memory; the next poll finds no new commit, logs "Nothing has changed" and never
-  re-checks. A deploy that "silently did not take effect" is this, not a stale
-  poll — the add-on log carries `Configuration updated but it does not pass the
-  config check`.
 
 ## Live Home Assistant API access
 
@@ -206,55 +172,24 @@ and the add-on's next poll.
 
 ### The WebSocket API
 
-Part of HA's state is absent from the REST API entirely. The **entity and device
-registries**, the **Lovelace dashboard configs**, the **energy dashboard prefs**,
-and the **recorder's statistic metadata** live only behind
-`http://homeassistant.local:8123/api/websocket`, authenticated with the same
-`HOME_ASSISTANT_TOKEN`: the server opens with `auth_required`, the client answers
-`{"type": "auth", "access_token": ...}`, and every later message carries an
-incrementing `id` that its reply echoes back.
-
-Renaming an `entity_id` is the usual reason to reach for it. REST has no endpoint
-for one, so an entity keeps whatever id its integration assigned until
-`config/entity_registry/update` moves it.
-
-**Read without asking:**
-
-- `config/entity_registry/list` / `config/device_registry/list` — ids, platforms, `disabled_by`, and which device owns each entity
-- `search/related` — what references an entity: automations, scripts, scenes, helpers
-- `lovelace/dashboards/list` / `lovelace/config` — the dashboards and the cards they store
-- `energy/get_prefs` — which sensors feed the energy dashboard
-- `recorder/list_statistic_ids` — whether a sensor records `sum` or `mean`, which is how to catch a wrong `state_class`
-
-**Ask the user before any of these**, every time — approval for one does not
-carry to the next:
-
-- `config/entity_registry/update` — renames an `entity_id`, and every config file naming the old one stops matching without erroring
-- `config/device_registry/update` — renames a device, and with it the friendly names of all its entities
-- `lovelace/config/save` — replaces a dashboard's whole config; it is not a merge
-- `energy/save_prefs` — replaces the energy dashboard's entire source list
-
-Two things here mislead:
-
-- `search/related` does **not** cover Lovelace. An entity it reports as referenced by nothing can still sit on a card, and renaming it blanks that card with no error anywhere. Scan each dashboard's config separately before trusting a rename is safe.
-- aiohttp's default (aiodns) resolver cannot resolve mDNS `.local` names, and fails with `Domain name not found` — which reads like the box being down rather than a resolver limitation. `curl` succeeds on the same host because it uses the system resolver; hand aiohttp a `TCPConnector(resolver=ThreadedResolver())` to do likewise.
-- `homeassistant.local` publishes AAAA records beside its A record, and the IPv6 addresses refuse connections intermittently — `Connect call failed`, or `curl` reporting a link-local peer and `http 000`. Pin to IPv4 (`curl -4`, or `family=socket.AF_INET` on the connector) instead of reading it as an outage. A real outage fails on IPv4 too, which is the check worth running before concluding one.
-
-A `401` means the token was revoked or replaced — the fix is a new token from the
-HA UI, not a retry. A connection failure means the box is unreachable from this
-network; treat live inspection as unavailable and fall back to the test suite
-rather than working around it.
+The **entity and device registries**, the **Lovelace dashboard configs**, the
+**energy dashboard prefs**, and the **recorder's statistic metadata** are absent
+from REST and live only behind `http://homeassistant.local:8123/api/websocket` —
+the protocol, the readable message types, and the `.local` resolver and IPv6
+gotchas are in the `ha-websocket-api` skill. Every write there
+(`config/entity_registry/update`, `config/device_registry/update`,
+`lovelace/config/save`, `energy/save_prefs`) needs the user's approval, every
+time, and approval for one does not carry to the next.
 
 ## Custom integrations (HACS)
 
-Not vendored into this repo. If restoring from scratch, install HACS first, then add:
-
-- **claudegel/sinope-130** (integration) → `custom_components/neviweb130` — Sinopé Wi-Fi baseboard heaters; referenced by the `neviweb130:` block in `configuration.yaml`
-- **bodyscape/cielo_home** (integration) → `custom_components/cielo_home` — Cielo Home Wi-Fi controller for the heat pumps; provides `climate.office` / `climate.studio`, `switch.office_power` / `switch.studio_power`, and `sensor.office_target_temperature` / `sensor.studio_target_temperature`
-- **Climate Template** (integration, platform `climate_template` — e.g. a maintained fork of jcwillox/hass-template-climate; confirm the most-maintained fork at install time) → provides the display/entry facade `climate.office_thermostat` / `climate.studio_thermostat` over the bound helpers, for the standard HA Thermostat card's ecobee-style dual-setpoint dial. Defined in the `climate:` block of `configuration.yaml`; issues no Cielo calls itself (all control stays in the coordinator). Which fields are per-room and which are global: `current_temperature` (that room's baseboard sensor), both bound helpers, and `hvac_action` (gated on that room's `switch.<room>_power`) are per-room; `hvac_mode` / `set_hvac_mode` both read and write the single `input_boolean.hvac_enable`, so `off` on either tile is a system-wide off and the other tile displays `off` too.
-- **RomRider/apexcharts-card** (Lovelace plugin) → `www/community/apexcharts-card` — used by the dashboards
-
-The Lovelace dashboards themselves are not restorable from this repo. They live in `.storage/lovelace*`, excluded above, so a from-scratch restore comes up with HA's auto-generated default dashboard and none of the tiles — including the ecobee thermostat tile and the apexcharts cards. Closing that gap means either exporting each dashboard's raw configuration into a tracked directory, or tracking `.storage/lovelace` and `.storage/lovelace_dashboards` per-file, which `.gitignore`'s own comment already anticipates.
+Four HACS packages the tracked config depends on but does not vendor —
+`neviweb130` (baseboards), `cielo_home` (heat-pump heads), Climate Template (the
+thermostat facade), and apexcharts-card. The install list, and why the Lovelace
+dashboards cannot be restored from this repo at all, are in
+`.claude/skills/ha-hacs-restore/SKILL.md` — read the file directly. It is a
+from-scratch restore reference only; this instance is already set up, so the
+skill is switched off in `.claude/settings.local.json` and will not be offered.
 
 ## Helpers migration
 
@@ -287,6 +222,8 @@ Each room has:
 
 1. A **Sinopé Wi-Fi baseboard heater** via the `neviweb130` integration — `climate.neviweb130_climate_th1123wf` (office) / `th1124wf` (studio). Provides `current_temperature`, `hourly_kwh`, and in cold-weather backup mode actually does the heating.
 2. A **heat-pump head** (mini-split) controlled via the `cielo_home` HACS integration. Each unit exposes both a `climate` entity (`climate.office`, `climate.studio`) and a power `switch` (`switch.office_power`, `switch.studio_power`) — same physical device, two entities. The HVAC coordinator references these by entity name (`climate.office` / `climate.studio` for the climate side; `switch.office_power` / `switch.studio_power` for the power switch). The two heads share **one outdoor compressor** — a multi-split — so they can never run in opposite modes at the same time (see below).
+
+Over both rooms sits a **Climate Template** facade — `climate.office_thermostat` / `climate.studio_thermostat`, defined in the `climate:` block of `configuration.yaml`. It is display and entry only, for the standard HA Thermostat card's ecobee-style dual-setpoint dial, and issues no Cielo calls itself; all control stays in the coordinator. Which fields are per-room and which are global: `current_temperature` (that room's baseboard sensor), both bound helpers, and `hvac_action` (gated on that room's `switch.<room>_power`) are per-room; `hvac_mode` / `set_hvac_mode` both read and write the single `input_boolean.hvac_enable`, so `off` on either tile is a system-wide off and the other tile displays `off` too.
 
 Independent of the HVAC loop, both in the **studio**, sharing one Zigbee humidity sensor:
 
