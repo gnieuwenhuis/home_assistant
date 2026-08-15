@@ -182,6 +182,13 @@ The only exception is the safety that stops both running at once.
 the hysteresis is asymmetric: `tolerance` decides where a device *starts*, the set
 point is where it *stops*. Widening the tolerance will not lower the stop point.
 
+**You got a "dehumidifier is drawing power with its switch off" alert.** Treat it
+as real and unplug the unit at the wall. It means the switch is measuring current
+while commanding the dehumidifier off, which is a relay welded shut — the failure
+this compressor has already caused once, on the plug that preceded the current
+switch. Nothing in software can clear it: turning the switch off is exactly what
+it is already doing.
+
 **The Eva lamp switched itself off / went off after a reboot.**
 Working as designed — it switches off 30 minutes after being turned on. A plug
 that drops offline and reconnects while still on counts as a turn-on and starts

@@ -166,8 +166,8 @@ message to the user, and never send it anywhere other than
 for the key name.
 
 **This reaches the real house.** The entities behind this API are physical
-hardware — two heat-pump heads on a shared compressor, two baseboards, three Tuya
-plugs. Reads are free; writes move equipment.
+hardware — two heat-pump heads on a shared compressor, two baseboards, two Tuya
+plugs and a Z-Wave switch. Reads are free; writes move equipment.
 
 **Read without asking:**
 
@@ -203,6 +203,41 @@ Deploying is never an agent's call: `main` is the only sanctioned path to the bo
 (see "Deployment"). A reload service re-applies whatever `/config` holds at that
 moment — a hand-edit on the box included — onto live hardware, ahead of CI, review
 and the add-on's next poll.
+
+### The WebSocket API
+
+Part of HA's state is absent from the REST API entirely. The **entity and device
+registries**, the **Lovelace dashboard configs**, the **energy dashboard prefs**,
+and the **recorder's statistic metadata** live only behind
+`http://homeassistant.local:8123/api/websocket`, authenticated with the same
+`HOME_ASSISTANT_TOKEN`: the server opens with `auth_required`, the client answers
+`{"type": "auth", "access_token": ...}`, and every later message carries an
+incrementing `id` that its reply echoes back.
+
+Renaming an `entity_id` is the usual reason to reach for it. REST has no endpoint
+for one, so an entity keeps whatever id its integration assigned until
+`config/entity_registry/update` moves it.
+
+**Read without asking:**
+
+- `config/entity_registry/list` / `config/device_registry/list` — ids, platforms, `disabled_by`, and which device owns each entity
+- `search/related` — what references an entity: automations, scripts, scenes, helpers
+- `lovelace/dashboards/list` / `lovelace/config` — the dashboards and the cards they store
+- `energy/get_prefs` — which sensors feed the energy dashboard
+- `recorder/list_statistic_ids` — whether a sensor records `sum` or `mean`, which is how to catch a wrong `state_class`
+
+**Ask the user before any of these**, every time — approval for one does not
+carry to the next:
+
+- `config/entity_registry/update` — renames an `entity_id`, and every config file naming the old one stops matching without erroring
+- `config/device_registry/update` — renames a device, and with it the friendly names of all its entities
+- `lovelace/config/save` — replaces a dashboard's whole config; it is not a merge
+- `energy/save_prefs` — replaces the energy dashboard's entire source list
+
+Two things here mislead:
+
+- `search/related` does **not** cover Lovelace. An entity it reports as referenced by nothing can still sit on a card, and renaming it blanks that card with no error anywhere. Scan each dashboard's config separately before trusting a rename is safe.
+- aiohttp's default (aiodns) resolver cannot resolve mDNS `.local` names, and fails with `Domain name not found` — which reads like the box being down rather than a resolver limitation. `curl` succeeds on the same host because it uses the system resolver; hand aiohttp a `TCPConnector(resolver=ThreadedResolver())` to do likewise.
 
 A `401` means the token was revoked or replaced — the fix is a new token from the
 HA UI, not a retry. A connection failure means the box is unreachable from this
@@ -336,6 +371,17 @@ The humidity helpers (`input_number.humidity_set_point`, `input_number.humidity_
 `timer.*` entities — `dehumidify_cooldown`, `humidify_cooldown`,
 `dehumidifier_manual_grace`, `humidifier_manual_grace`) are defined in `helpers.yaml` like
 the rest; the two `input_number`s ship tuned `initial:` values (set point 42, tolerance 1.5).
+
+**Relay watchdog.** `studio_dehumidifier_relay_failure` notifies when
+`sensor.studio_dehumidifier_electric_consumption_w` exceeds **20 W** for 3 minutes while
+`switch.studio_dehumidifier` reads `off` — a welded relay, which is the failure mode this
+load produces (see the hardware notes above). It is outside the control loop by nature:
+no reconcile can open fused contacts, so the automation only reports. The 20 W threshold
+appears **twice**, in the trigger's `above:` and in the `leak_watts` variable, because a
+trigger cannot read `variables:` — HA renders those only after a trigger fires. The
+condition is what the tests exercise, since `automation.trigger` bypasses trigger blocks
+entirely; `test_trigger_threshold_matches_condition_threshold` is what keeps the pair in
+step.
 
 ### The Eva lamp auto-off
 
