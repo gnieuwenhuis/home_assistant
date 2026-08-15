@@ -21,9 +21,14 @@ Before writing code:
 2. Read the files the spec names, plus their direct callers.
 3. Extract: language patterns, error handling, code style, build commands.
 
-Two rules under `.claude/rules/` load automatically — `code-comments.md`
-whenever Python is in play, `documentation.md` whenever markdown is. They are
+Three rules under `.claude/rules/` load automatically — `code-comments.md`
+whenever Python is in play, `documentation.md` whenever markdown is, and
+`contributor-data.md` every session, because it binds every file type. They are
 authoritative; do not restate or contradict them.
+
+`contributor-data.md` is the one to read before you write a figure of any kind:
+contributor signal volumes never enter the repository, and a hook blocks the
+write when it catches one.
 
 Stop discovery once you can name the files you will change and why.
 

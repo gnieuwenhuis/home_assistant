@@ -289,6 +289,12 @@ does not come back. Both are why `main` is gated on CI.
 A repository admin can merge a red pull request; it deploys like any other, and
 that override is also the way through a GitHub Actions outage.
 
+The two required checks are gated by name: `lint` and `test` are the job names in
+`.github/workflows/ci.yml`, and the ruleset on `main` names those same two
+strings. Renaming a job disarms the gate silently until the ruleset is updated to
+match. (`yamllint` ships preinstalled on `ubuntu-latest`, so the workflow's
+`pipx install yamllint` step is a no-op there.)
+
 The reset replaces tracked files only. `secrets.yaml`, `.storage/`, the HACS
 `custom_components/` and `www/community/` are gitignored and survive every pull.
 
@@ -321,6 +327,17 @@ The Supervisor panel 404s on this box — `Settings → Add-ons` and
 `/hassio/dashboard` are unavailable, though Supervisor itself is healthy — so the
 add-on is driven with the `ha` CLI from a shell on the host: the Terminal or
 Studio Code Server add-on, or SSH.
+
+Two things about driving it that way:
+
+- **`ha addons` has no `options` subcommand.** Add-on configuration goes through
+  `POST http://supervisor/addons/<slug>/options` with
+  `Authorization: Bearer $SUPERVISOR_TOKEN`, and that POST is a **full replace**:
+  omitting a schema-required key (`deployment_user`, for one) rejects the entire
+  payload.
+- **The add-on matches `repository` against `origin` as a literal string** and
+  refuses to start on any mismatch, so renaming the repository needs a
+  `git remote set-url` in `/config` to go with it.
 
 1. **Stop the add-on, reset `/config`, restart Home Assistant** — in that order.
 

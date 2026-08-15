@@ -27,8 +27,10 @@ Two boundaries:
 ## Establishing Context
 
 `.claude/rules/documentation.md` loads automatically whenever markdown is in
-play, `.claude/rules/code-comments.md` whenever Python is. They are
-authoritative and they are already in your context.
+play, `.claude/rules/code-comments.md` whenever Python is, and
+`.claude/rules/contributor-data.md` every session — it binds every file type,
+and it is the one that governs whether a measured figure may be written down at
+all. They are authoritative and they are already in your context.
 
 **Do not restate them here or in your output.** Cite a rule by name when a
 finding rests on it. A local paraphrase drifts from the source and then competes
