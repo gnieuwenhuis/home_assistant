@@ -39,8 +39,9 @@ Each room has two heating/cooling devices:
    it reads refrigerant-pipe temperature driven by the *other* head; it only
    reflects room temperature once it's been running a while).
 
-The **studio** additionally has a **humidifier** and a **dehumidifier** (smart
-plugs) sharing one humidity sensor.
+The **studio** additionally has a **humidifier** (a smart plug) and a
+**dehumidifier** (a 15 A Z-Wave appliance switch, sized for the compressor)
+sharing one humidity sensor.
 
 Outdoor temperature comes from a Lethbridge weather sensor and drives the
 cold-weather backup behavior.
@@ -421,8 +422,8 @@ It is written against one specific installation:
   makes sense because both heads share one outdoor unit. If your heads are
   independent, this design is wrong for you.
 - Specific hardware and HACS integrations: Sinopé baseboards via `neviweb130`,
-  heat-pump heads via `cielo_home`, Tuya plugs, one Zigbee humidity sensor. Entity
-  IDs are hard-coded throughout `automations.yaml`.
+  heat-pump heads via `cielo_home`, a Tuya plug and a Zooz Z-Wave switch, one
+  Zigbee humidity sensor. Entity IDs are hard-coded throughout `automations.yaml`.
 - Constants tuned by observation in *this* building — the per-room differentials,
   the studio's heating lead, the lockout and dwell durations, the humidity band.
   They encode this space's thermal mass and sensor placement, not general truths.
