@@ -367,7 +367,7 @@
     - sensor.tz3000_utwgoauk_snzb_02_humidity
     - input_number.humidity_set_point
     - input_number.humidity_tolerance
-    - switch.studio_dehumidifier_socket_1
+    - switch.studio_dehumidifier
     - switch.studio_humidifier_socket_1
   - trigger: event
     event_type: timer.finished
@@ -393,7 +393,7 @@
     humidity:        "{{ states('sensor.tz3000_utwgoauk_snzb_02_humidity') | float(0) }}"
     set_point:       "{{ states('input_number.humidity_set_point') | float(0) }}"
     tolerance:       "{{ states('input_number.humidity_tolerance') | float(0) }}"
-    dehum_on:        "{{ is_state('switch.studio_dehumidifier_socket_1', 'on') }}"
+    dehum_on:        "{{ is_state('switch.studio_dehumidifier', 'on') }}"
     humid_on:        "{{ is_state('switch.studio_humidifier_socket_1', 'on') }}"
     # Cross-device cooldowns: dehumidify_cd (armed on dehum OFF) gates the
     # HUMIDIFIER on; humidify_cd (armed on humid OFF) gates the DEHUMIDIFIER on.
@@ -416,7 +416,7 @@
   - "{{ states('sensor.tz3000_utwgoauk_snzb_02_humidity') not in ['unavailable', 'unknown'] }}"
   - "{{ states('input_number.humidity_set_point') not in ['unavailable', 'unknown'] }}"
   - "{{ states('input_number.humidity_tolerance') not in ['unavailable', 'unknown'] }}"
-  - "{{ states('switch.studio_dehumidifier_socket_1') not in ['unavailable', 'unknown'] }}"
+  - "{{ states('switch.studio_dehumidifier') not in ['unavailable', 'unknown'] }}"
   - "{{ states('switch.studio_humidifier_socket_1') not in ['unavailable', 'unknown'] }}"
   actions:
   - choose:
@@ -442,7 +442,7 @@
             entity_id: input_boolean.dehumidifier_intended
         - action: switch.turn_off
           target:
-            entity_id: switch.studio_dehumidifier_socket_1
+            entity_id: switch.studio_dehumidifier
         - action: timer.start
           target:
             entity_id: timer.dehumidify_cooldown
@@ -455,7 +455,7 @@
           entity_id: input_boolean.dehumidifier_intended
       - action: switch.turn_off
         target:
-          entity_id: switch.studio_dehumidifier_socket_1
+          entity_id: switch.studio_dehumidifier
       - action: timer.start
         target:
           entity_id: timer.dehumidify_cooldown
@@ -485,7 +485,7 @@
           entity_id: input_boolean.dehumidifier_intended
       - action: switch.turn_on
         target:
-          entity_id: switch.studio_dehumidifier_socket_1
+          entity_id: switch.studio_dehumidifier
     # 5) Humidifier should turn ON. Gated on: dehumidifier off (mutual
     #    exclusion), no humid grace, and the DEHUMIDIFY cooldown not active (a
     #    recent dehumidifier-off overshoot must clear first). Its OWN humidify
@@ -511,7 +511,7 @@
     a manual override alone.
   triggers:
   - trigger: state
-    entity_id: switch.studio_dehumidifier_socket_1
+    entity_id: switch.studio_dehumidifier
   - trigger: state
     entity_id: switch.studio_humidifier_socket_1
   conditions:
@@ -520,7 +520,7 @@
   actions:
   - choose:
     - conditions: >-
-        {{ trigger.entity_id == 'switch.studio_dehumidifier_socket_1'
+        {{ trigger.entity_id == 'switch.studio_dehumidifier'
            and trigger.to_state.state != states('input_boolean.dehumidifier_intended') }}
       sequence:
       - action: "input_boolean.turn_{{ trigger.to_state.state }}"

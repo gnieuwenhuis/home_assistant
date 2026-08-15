@@ -38,7 +38,7 @@ Not tracked — the entries that matter (see `.gitignore` for the full list):
 - `.storage/` — HA's internal state store; rewritten constantly, and `.storage/auth*` holds tokens
 - `themes/` — the stock `frontend: themes:` include in `configuration.yaml`. Absent here and on a fresh HA install alike: `!include_dir_merge_named` on a missing directory loads as `{}` with no error or warning.
 
-External entities that automations reference but that are defined elsewhere (Zigbee integrations, weather integrations, mobile companion app): `sensor.lethbridge_temperature` (outdoor, drives backup heat), `sensor.tz3000_utwgoauk_snzb_02_humidity`, `switch.studio_dehumidifier_socket_1` (dehumidifier plug), `switch.studio_humidifier_socket_1` (humidifier plug), `switch.eva_lamp_socket_1` (Eva lamp plug), `mobile_app_pixel_8`. Don't assume an entity is undefined just because it isn't grep-able locally.
+External entities that automations reference but that are defined elsewhere (Zigbee, Z-Wave, and weather integrations, mobile companion app): `sensor.lethbridge_temperature` (outdoor, drives backup heat), `sensor.tz3000_utwgoauk_snzb_02_humidity`, `switch.studio_dehumidifier` (dehumidifier switch), `switch.studio_humidifier_socket_1` (humidifier plug), `switch.eva_lamp_socket_1` (Eva lamp plug), `mobile_app_pixel_8`. Don't assume an entity is undefined just because it isn't grep-able locally.
 
 ## Tests
 
@@ -252,7 +252,12 @@ Each room has:
 1. A **Sinopé Wi-Fi baseboard heater** via the `neviweb130` integration — `climate.neviweb130_climate_th1123wf` (office) / `th1124wf` (studio). Provides `current_temperature`, `hourly_kwh`, and in cold-weather backup mode actually does the heating.
 2. A **heat-pump head** (mini-split) controlled via the `cielo_home` HACS integration. Each unit exposes both a `climate` entity (`climate.office`, `climate.studio`) and a power `switch` (`switch.office_power`, `switch.studio_power`) — same physical device, two entities. The HVAC coordinator references these by entity name (`climate.office` / `climate.studio` for the climate side; `switch.office_power` / `switch.studio_power` for the power switch). The two heads share **one outdoor compressor** — a multi-split — so they can never run in opposite modes at the same time (see below).
 
-Independent of the HVAC loop, both in the **studio**: dehumidifier plug `2c14c57df022faaf9f89c6390df4173f` and humidifier plug `60211ed7b46e92fd6dcadf60d8087fd0` share one Zigbee humidity sensor. Both are Tuya "Mini Plug" units on the Tuya cloud integration. The dehumidifier plug was replaced on 2026-08-09 after its relay failed — it began closing on its own (self-initiated `on` events with no controller command) and finally passed current with the switch commanded open. The retired unit was device `ab8b624cc66726276f8c0a35c7903c9f` / `switch.mini_plug_4_socket_1`; a compressor is an inductive load and these plugs' relays are the weak point, so treat a repeat of that signature as hardware, not logic.
+Independent of the HVAC loop, both in the **studio**, sharing one Zigbee humidity sensor:
+
+- **Dehumidifier** — a **Zooz ZEN15** 15 A appliance switch (device `93bb9684cf6a9114c07d9d502ddc35a2`) on the `zwave_js` integration: `switch.studio_dehumidifier`. It also reports W / A / V / kWh (`sensor.studio_dehumidifier_electric_consumption_*`) and an over-current binary sensor; nothing here consumes those yet.
+- **Humidifier** — a Tuya "Mini Plug" (device `60211ed7b46e92fd6dcadf60d8087fd0`) on the Tuya cloud integration: `switch.studio_humidifier_socket_1`.
+
+The dehumidifier is on a 15 A switch because a compressor is an inductive load and the Mini Plug relay is the weak point against it. One died that way on 2026-08-09: device `ab8b624cc66726276f8c0a35c7903c9f` / `switch.mini_plug_4_socket_1` began closing on its own (self-initiated `on` events with no controller command), and finally passed current with the switch commanded open. Treat a repeat of that signature as hardware, not logic. Its Tuya replacement carried the load unfailed until the ZEN15 took over on 2026-08-14 and is parked in HA, unwired, as device "Unused Plug" / `switch.unused_plug_socket_1`.
 
 ### The ecobee-style HVAC coordinator
 
@@ -286,7 +291,7 @@ Two automations share one threshold: `'1756873917108'` turns `input_boolean.back
 ### Humidity (independent of HVAC)
 
 A single state-driven controller (`studio_humidity_controller` in `automations.yaml`)
-reconciles the dehumidifier plug (`switch.studio_dehumidifier_socket_1`) and humidifier plug
+reconciles the dehumidifier switch (`switch.studio_dehumidifier`) and humidifier plug
 (`switch.studio_humidifier_socket_1`) from the current reading of the shared Zigbee humidity
 sensor — the same reconcile-on-delta pattern as the HVAC controllers. Reconciling from the
 current reading rather than from threshold-crossing edges is what makes a missed crossing
