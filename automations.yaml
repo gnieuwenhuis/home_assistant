@@ -349,6 +349,9 @@
 #   humidifier   ON at set_point-tol, OFF above set_point
 # The manual detector tells controller-issued switch changes
 # apart from manual ones via the *_intended mirror booleans.
+# A third automation watches the dehumidifier's own power meter
+# for current drawn with the switch off, which is a welded relay
+# rather than anything the control loop can correct.
 # ============================================================
 
 - id: studio_humidity_controller
@@ -540,6 +543,41 @@
         target:
           entity_id: timer.humidifier_manual_grace
   mode: queued
+
+- id: studio_dehumidifier_relay_failure
+  alias: Studio Dehumidifier Relay Failure
+  description: >-
+    Alert when the dehumidifier draws current while its switch is commanded
+    off — the signature of a welded relay. The compressor is an inductive load
+    and the relay is the part that fails; with the contacts fused shut nothing
+    in the control loop can stop the room drying out.
+  triggers:
+  # The trigger debounces; the condition decides. `above:` cannot read
+  # `variables:` — HA renders those only once a trigger has fired — so the
+  # threshold is written twice and a test asserts the two agree.
+  - trigger: numeric_state
+    entity_id: sensor.studio_dehumidifier_electric_consumption_w
+    above: 20
+    for:
+      minutes: 3
+  variables:
+    # Idle draw on this meter is 0.0 W and the running compressor is in the
+    # hundreds, so 20 W clears meter noise without approaching a real load. The
+    # 3-minute debounce absorbs the lag between the switch reporting `off` and
+    # the wattage reading following it down.
+    leak_watts: 20
+    draw: "{{ states('sensor.studio_dehumidifier_electric_consumption_w') | float(0) }}"
+  conditions:
+  - "{{ states('sensor.studio_dehumidifier_electric_consumption_w') not in ['unavailable', 'unknown'] }}"
+  - "{{ is_state('switch.studio_dehumidifier', 'off') }}"
+  - "{{ draw > leak_watts }}"
+  actions:
+  - action: notify.notification_group
+    data:
+      message: >-
+        Studio dehumidifier is drawing {{ draw | round(0) }} W with its switch
+        off. The relay may be welded shut — unplug it at the wall.
+  mode: single
 
 # ============================================================
 # Lamps

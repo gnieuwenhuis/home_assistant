@@ -27,6 +27,10 @@ HEAD_TARGET_CLAMP_FLOOR = 17
 # climate:, so a block that lost its entries fails instead of passing vacuously.
 THERMOSTAT_TILES = 2
 
+# Home Assistant derives a `sum` statistic only for these two state classes.
+# `measurement` yields a mean instead, which the energy dashboard cannot consume.
+SUM_STATE_CLASSES = {"total", "total_increasing"}
+
 
 class ExampleSecrets(loader.Secrets):
     """Resolve !secret from secrets.yaml.example so CI needs no real secrets.
@@ -104,6 +108,32 @@ async def test_template_entities_are_created(hass_repo, config):
     expected = sum(len(b["sensor"]) for b in config["template"] if "sensor" in b)
     created = hass_repo.states.async_entity_ids("sensor")
     assert len(created) == expected, (expected, sorted(created))
+
+
+def test_energy_sensors_produce_sum_statistics(config):
+    """Every energy sensor records a sum rather than a mean.
+
+    An energy sensor left at `state_class: measurement` still shows a plausible
+    value on a card, so nothing looks wrong until the energy dashboard reports
+    that source contributing zero. The live symptom is `has_sum: false` from
+    `recorder/list_statistic_ids`, which is the only place it surfaces.
+    """
+    energy = [
+        sensor
+        for block in config["template"] if "sensor" in block
+        for sensor in block["sensor"]
+        if sensor.get("device_class") == "energy"
+    ]
+    assert energy, "no energy template sensors found in configuration.yaml"
+    wrong = {
+        sensor["name"]: sensor.get("state_class")
+        for sensor in energy
+        if sensor.get("state_class") not in SUM_STATE_CLASSES
+    }
+    assert not wrong, (
+        f"energy sensors recording a mean instead of a sum: {wrong}. The energy "
+        f"dashboard consumes sums, so these contribute nothing to it."
+    )
 
 
 async def test_climate_templates_render(hass_repo, config):

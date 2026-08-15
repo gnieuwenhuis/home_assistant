@@ -54,7 +54,7 @@ template:
         unique_id: sensor.office_energy_usage_count
         unit_of_measurement: "kWh"
         device_class: energy
-        state_class: measurement
+        state_class: total_increasing
         state: >-
           {{ state_attr("climate.neviweb130_climate_th1123wf","hourly_kwh_count") }}
       - name: "Office baseboard Current Temperature"
