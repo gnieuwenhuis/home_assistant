@@ -238,6 +238,7 @@ Two things here mislead:
 
 - `search/related` does **not** cover Lovelace. An entity it reports as referenced by nothing can still sit on a card, and renaming it blanks that card with no error anywhere. Scan each dashboard's config separately before trusting a rename is safe.
 - aiohttp's default (aiodns) resolver cannot resolve mDNS `.local` names, and fails with `Domain name not found` — which reads like the box being down rather than a resolver limitation. `curl` succeeds on the same host because it uses the system resolver; hand aiohttp a `TCPConnector(resolver=ThreadedResolver())` to do likewise.
+- `homeassistant.local` publishes AAAA records beside its A record, and the IPv6 addresses refuse connections intermittently — `Connect call failed`, or `curl` reporting a link-local peer and `http 000`. Pin to IPv4 (`curl -4`, or `family=socket.AF_INET` on the connector) instead of reading it as an outage. A real outage fails on IPv4 too, which is the check worth running before concluding one.
 
 A `401` means the token was revoked or replaced — the fix is a new token from the
 HA UI, not a retry. A connection failure means the box is unreachable from this
