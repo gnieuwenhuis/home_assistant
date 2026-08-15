@@ -86,7 +86,7 @@ duplicates either column.
 | `rules/` | Project conventions Claude Code loads on its own — see below |
 | `hooks/` | Scripts run by the harness on tool events; registered in `settings.json` |
 | `agents/` | 3 sub-agent definitions, see below |
-| `skills/` | 5 skills this repo owns; see `skills/README.md` for what each inspects and outputs |
+| `skills/` | 7 skills this repo owns — 5 analysis workflows plus 2 Home Assistant reference skills; see `skills/README.md` for what each inspects and outputs |
 | `settings.json` | Shared settings (hook registration). Personal permissions belong in the gitignored `settings.local.json` |
 | `LICENSE` | Upstream license — see attribution above |
 
@@ -111,6 +111,10 @@ Current rules:
 |---|---|---|
 | `rules/documentation.md` | `**/*.md` | One root CLAUDE.md only; when a README is warranted and what genre it takes |
 | `rules/code-comments.md` | `**/*.py` | Timeless-present framing; the detection heuristic behind change-narrative comments |
+| `rules/contributor-data.md` | none — every session | What counts as a contributor volume, how to state a result without one, and what the hook cannot see |
+
+`contributor-data.md` carries no globs on purpose: it binds every file type and
+outbound GitHub bodies too, so file-scoped loading would leave gaps.
 
 Put a convention in `rules/` when it applies to a file type. Put it in an
 agent or skill body when it applies to a *task*. Do not create a directory of
@@ -128,6 +132,21 @@ ignores scratch files outside the project tree — those are not repo code.
 
 Patterns are deliberately conservative — a missed violation costs less than a
 false one. To disable, delete the `PostToolUse` entry from `settings.json`.
+
+`hooks/check_contributor_figures.py` enforces `rules/contributor-data.md` from
+two sides. On `PreToolUse`/`Bash` it denies a `gh pr|issue|release create|edit|comment`
+or `git commit` whose body pairs a contributor with a volume-shaped number —
+denying rather than reporting, because those bodies are public the moment the
+command runs. On `PostToolUse` it blocks a write that authored one, across the
+text file types the repo publishes from.
+
+The line it draws is attribution, not counting: a number beside a contributor name
+is flagged, an aggregate naming no contributor passes. Its calculus is the inverse
+of the comment hook's — a missed match discloses contributor data, so the patterns
+are broad and a threshold or sample size will occasionally trip them. Dismiss a real
+false positive in one line. It reads only the text a call authored, so existing
+content stays quiet, and it masks dates, versions, and hex digests before looking
+for numbers.
 
 ### Agents
 
