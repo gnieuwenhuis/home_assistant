@@ -88,8 +88,14 @@ def test_included_files_exist():
         assert (REPO_ROOT / name).exists(), f"{name} is included but missing"
 
 
+@pytest.mark.parametrize("expected_lingering_timers", [True])
 async def test_template_entities_are_created(hass_repo, config):
     """Every sensor declared in the template: block exists after setup.
+
+    The studio control sensor's 5-minute time_pattern trigger leaves a timer
+    scheduled past the end of the test, and the template integration exposes no
+    service that detaches a trigger block's listeners, so the lingering-timer
+    check is parametrized off here (it cancels the handle either way).
 
     `async_setup_component` returns True even when the block is rejected: HA
     logs `Invalid config for 'template'`, drops the whole block, and reports

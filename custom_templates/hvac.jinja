@@ -26,16 +26,113 @@
   {%- endif -%}
 {%- endmacro %}
 
+{# snap_to_head_grid: the °C value to command so the head lands on the nearest
+   whole degree Fahrenheit. The head's grid is whole °F and it truncates, so the
+   °C spelling rounds up — 63 °F is 17.2222 °C, and sending 17.2 gives 62.96 °F,
+   one step low.
+
+   The °F rounding is half-up by construction: 17.5, 22.5 and 27.5 °C are exact
+   half-degrees Fahrenheit, and a tie-to-even round sends them a step low. #}
+{% macro snap_to_head_grid(celsius) -%}
+  {%- set f = ((celsius | float * 9 / 5 + 32) + 0.5) | round(0, 'floor') -%}
+  {{- ((f - 32) * 5 / 9) | round(1, 'ceil') -}}
+{%- endmacro %}
+
 {# head_target: the temperature to command a head, a small `lead` past the
    active bound so the inverter stays committed (the coordinator does the real
-   cutoff against the reliable room sensor). Clamped to [17, 30]. Bounds step
-   by 0.5 and leads are set on 0.5 steps, so results land on 0.5 increments —
-   keep `lead` a multiple of 0.5. Empty for a non-active mode. #}
+   cutoff against the reliable room sensor). Clamped to [17, 30], then snapped
+   onto the head's whole-degree-Fahrenheit grid. Empty for a non-active mode. #}
 {% macro head_target(mode, heat_bound, cool_bound, lead) -%}
   {%- set l = lead | float -%}
   {%- if mode == 'heat' -%}
-    {{ [17, [30, (heat_bound | float + l)] | min] | max }}
+    {{- snap_to_head_grid([17, [30, (heat_bound | float + l)] | min] | max) -}}
   {%- elif mode == 'cool' -%}
-    {{ [17, [30, (cool_bound | float - l)] | min] | max }}
+    {{- snap_to_head_grid([17, [30, (cool_bound | float - l)] | min] | max) -}}
+  {%- endif -%}
+{%- endmacro %}
+
+{# command_step / report_step: the whole-degree-Fahrenheit step behind a °C
+   value, from each side of the head. The head truncates what it is commanded;
+   HA rounds what it reports back. A commanded 17.3 and a reported 17.2 are the
+   same 63 °F step, so a re-command gate compares steps, never Celsius. #}
+{% macro command_step(celsius) -%}
+  {{- (celsius | float * 9 / 5 + 32) | round(0, 'floor') | int -}}
+{%- endmacro %}
+
+{% macro report_step(celsius) -%}
+  {{- (celsius | float * 9 / 5 + 32) | round(0) | int -}}
+{%- endmacro %}
+
+{# slew_filter: a Schmitt-trigger slew filter for a room sensor sitting in a
+   heat source's exhaust path. A reading further than `reject` from the last
+   accepted value starts a hold; while holding, a reading must come back within
+   the tighter `reenter` band to be accepted, which is what rejects the decaying
+   tail of a plume. A hold lasting `max_hold` minutes is a real shift rather
+   than a plume, and resyncs. A non-numeric source rides out the same hold.
+
+   With no history a lone reading is unusable: taken inside a plume it latches
+   the plume peak for the whole hold. Seeding therefore needs two readings
+   within `reject` of each other drawn from two *different* source updates, the
+   unmatched one carried in `pending` with its source timestamp in `pending_at`.
+   `raw_at` is what separates the two: the sensor's own time_pattern trigger
+   re-renders an unchanged reading, which agrees with itself and would seed a
+   plateau.
+
+   `value_at` stamps when the current value was accepted, and rides along
+   unchanged whenever a held value is republished, so it measures age from
+   acceptance rather than from the last render. HA restores this sensor's state
+   and attributes, so a value older than `max_hold` describes a room that has
+   since moved and counts as absent, sending the seeding path. That test applies
+   only outside a hold — mid-hold the `max_hold` cap is what bounds the stale
+   window.
+
+   A null value is what the template sensor's own validator accepts as
+   "unknown" without logging; a string there errors on every render.
+   Returns JSON: {"value": <°C or null>, "value_at": "<ISO or ''>",
+   "hold_since": "<ISO or ''>", "pending": "<°C or ''>",
+   "pending_at": "<ISO or ''>"}. #}
+{% macro slew_filter(raw, raw_at, last_good, value_at, hold_since, pending, pending_at,
+                     now_iso, reject, reenter, max_hold) -%}
+  {%- set hs = (hold_since | default('', true)) | string -%}
+  {%- set holding = hs | length > 0 and hs != 'None' -%}
+  {%- set now_dt = now_iso | as_datetime -%}
+  {%- set held = ((now_dt - hs | as_datetime).total_seconds() / 60)
+                 if holding else 0 -%}
+  {%- set expired = holding and held >= (max_hold | float) -%}
+  {%- set va = (value_at | default('', true)) | string -%}
+  {%- set accepted_at = none if holding else (va | as_datetime) -%}
+  {%- set stale = accepted_at is not none
+                  and ((now_dt - accepted_at).total_seconds() / 60)
+                      >= (max_hold | float) -%}
+  {%- set have_history = (last_good | is_number) and not stale -%}
+  {%- set have_reading = raw | is_number -%}
+  {%- set started = hs if holding else now_iso -%}
+  {%- set band = (reenter | float) if holding else (reject | float) -%}
+  {%- if not have_reading -%}
+    {%- if have_history and not expired -%}
+      {"value": "{{ last_good | float }}", "value_at": "{{ va }}",
+       "hold_since": "{{ started }}", "pending": "", "pending_at": ""}
+    {%- else -%}
+      {"value": null, "value_at": "", "hold_since": "", "pending": "", "pending_at": ""}
+    {%- endif -%}
+  {%- elif not have_history -%}
+    {%- if (pending | is_number)
+           and (pending_at | string) != (raw_at | string)
+           and ((raw | float) - (pending | float)) | abs <= (reject | float) -%}
+      {"value": "{{ raw | float }}", "value_at": "{{ now_iso }}",
+       "hold_since": "", "pending": "", "pending_at": ""}
+    {%- else -%}
+      {"value": null, "value_at": "", "hold_since": "",
+       "pending": "{{ raw | float }}", "pending_at": "{{ raw_at }}"}
+    {%- endif -%}
+  {%- elif expired -%}
+    {"value": "{{ raw | float }}", "value_at": "{{ now_iso }}",
+     "hold_since": "", "pending": "", "pending_at": ""}
+  {%- elif ((raw | float) - (last_good | float)) | abs > band -%}
+    {"value": "{{ last_good | float }}", "value_at": "{{ va }}",
+     "hold_since": "{{ started }}", "pending": "", "pending_at": ""}
+  {%- else -%}
+    {"value": "{{ raw | float }}", "value_at": "{{ now_iso }}",
+     "hold_since": "", "pending": "", "pending_at": ""}
   {%- endif -%}
 {%- endmacro %}

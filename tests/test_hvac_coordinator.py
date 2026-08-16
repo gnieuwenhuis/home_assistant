@@ -70,7 +70,7 @@ async def arrange(hass, *, office_temp, studio_temp, stored="idle",
         {"entity_id": "input_boolean.backup_heat"}, blocking=True,
     )
     hass.states.async_set("sensor.office_baseboard_current_temperature", office_temp)
-    hass.states.async_set("sensor.studio_baseboard_current_temperature", studio_temp)
+    hass.states.async_set("sensor.studio_control_temperature", studio_temp)
     hass.states.async_set("switch.office_power", office_switch)
     hass.states.async_set("switch.studio_power", studio_switch)
     hass.states.async_set("climate.office", office_climate, {"temperature": 22})
@@ -120,7 +120,7 @@ async def test_cold_studio_heats_studio_only(coordinator):
     assert not turned_on(calls, "switch.office_power")
     assert hass.states.get("input_select.system_hvac_mode").state == "heat"
     heat_calls = [c for c in calls["temp"] if c.data.get("hvac_mode") == "heat"]
-    assert heat_calls and heat_calls[0].data["temperature"] == 21.5  # studio heat_bound 20 + studio lead 1.5
+    assert heat_calls and heat_calls[0].data["temperature"] == 21.7  # studio 20 + lead 1.5 = 21.5 -> 71 F = 21.7
 
 
 async def test_conflict_heating_wins_office_head_idle(coordinator):
@@ -191,7 +191,7 @@ async def test_drift_resends_target_without_toggle(coordinator):
     await hass.async_block_till_done()
     await run(hass)
     assert not turned_on(calls, "switch.studio_power")
-    assert any(c.data.get("temperature") == 21.5 for c in calls["temp"])  # studio heat_bound 20 + studio lead 1.5
+    assert any(c.data.get("temperature") == 21.7 for c in calls["temp"])  # studio 20 + lead 1.5 = 21.5 -> 71 F = 21.7
 
 
 async def test_hot_rooms_cool_with_cool_target(coordinator):
@@ -206,8 +206,8 @@ async def test_hot_rooms_cool_with_cool_target(coordinator):
                    if "climate.office" in _entities(c) and c.data.get("hvac_mode") == "cool"]
     studio_cool = [c for c in calls["temp"]
                    if "climate.studio" in _entities(c) and c.data.get("hvac_mode") == "cool"]
-    assert office_cool and office_cool[0].data["temperature"] == 24  # cool_bound, no lead
-    assert studio_cool and studio_cool[0].data["temperature"] == 23  # cool_bound, no lead
+    assert office_cool and office_cool[0].data["temperature"] == 23.9  # cool_bound 24 -> 75 F = 23.9, no lead
+    assert studio_cool and studio_cool[0].data["temperature"] == 22.8  # cool_bound 23 -> 73 F = 22.8, no lead
 
 
 async def test_heat_lead_is_asymmetric_office_zero_studio_positive(coordinator):
@@ -222,7 +222,7 @@ async def test_heat_lead_is_asymmetric_office_zero_studio_positive(coordinator):
     studio_heat = [c for c in calls["temp"]
                    if "climate.studio" in _entities(c) and c.data.get("hvac_mode") == "heat"]
     assert office_heat and office_heat[0].data["temperature"] == 20    # office bound 20, lead 0
-    assert studio_heat and studio_heat[0].data["temperature"] == 21.5  # studio bound 20 + lead 1.5
+    assert studio_heat and studio_heat[0].data["temperature"] == 21.7  # studio 20 + lead 1.5 = 21.5 -> 71 F = 21.7
 
 
 async def test_demand_drop_turns_head_off(coordinator):
@@ -268,3 +268,38 @@ async def test_overcool_turns_off_during_lockout(coordinator):
                   studio_lockout=True)
     await run(hass)
     assert turned_off(calls, "switch.studio_power")
+
+
+async def test_no_resend_when_head_already_on_target_step(coordinator):
+    hass, calls = coordinator
+    # Studio wants heat and the head already sits on the commanded step:
+    # 20 + 1.5 = 21.5 C snaps to 71 F, which HA reports back as 21.7.
+    await arrange(hass, office_temp=22, studio_temp=18, stored="heat",
+                  studio_switch="on", studio_climate="heat")
+    hass.states.async_set("climate.studio", "heat", {"temperature": 21.7})
+    await hass.async_block_till_done()
+    await run(hass)
+    studio_temp_calls = [c for c in calls["temp"] if "climate.studio" in _entities(c)]
+    assert not studio_temp_calls, (
+        f"head already on 71 F, expected no re-command, got {studio_temp_calls}"
+    )
+
+
+async def test_no_resend_when_reported_spelling_differs_from_commanded(coordinator):
+    hass, calls = coordinator
+    # heat_bound 17 + lead 1.5 = 18.5 C, which snaps to 65 F. The commanded
+    # spelling is 18.4 and HA displays 18.3 — the same step, so no re-command.
+    await arrange(hass, office_temp=22, studio_temp=15, stored="heat",
+                  studio_switch="on", studio_climate="heat")
+    await hass.services.async_call(
+        "input_number", "set_value",
+        {"entity_id": "input_number.studio_heat_bound", "value": 17},
+        blocking=True,
+    )
+    hass.states.async_set("climate.studio", "heat", {"temperature": 18.3})
+    await hass.async_block_till_done()
+    await run(hass)
+    studio_temp_calls = [c for c in calls["temp"] if "climate.studio" in _entities(c)]
+    assert not studio_temp_calls, (
+        f"18.4 commanded and 18.3 reported are both 65 F, got {studio_temp_calls}"
+    )
