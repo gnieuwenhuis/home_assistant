@@ -87,6 +87,92 @@ template:
         state: >-
           {{ states('input_number.humidity_set_point') | float
              - states('input_number.humidity_tolerance') | float }}
+  # The studio thermostat sits in the dehumidifier's exhaust path, which lifts it
+  # up to 3 °C above the room for ~15 minutes and reads as a satisfied room. The
+  # filter holds the last plausible value across the plume. The time_pattern
+  # trigger is what expires a hold when the source stops changing.
+  - trigger:
+      - trigger: state
+        entity_id: sensor.studio_baseboard_current_temperature
+      - trigger: homeassistant
+        event: start
+      - trigger: time_pattern
+        minutes: /5
+    sensor:
+      - name: "Studio control temperature"
+        unique_id: sensor.studio_control_temperature
+        unit_of_measurement: "°C"
+        device_class: temperature
+        state_class: measurement
+        # `states.sensor.x` is None until that entity exists, and attribute
+        # access on None raises, so the source timestamp is guarded.
+        state: >-
+          {% from 'hvac.jinja' import slew_filter %}
+          {% set src = states.sensor.studio_baseboard_current_temperature %}
+          {{- (slew_filter(
+                 states('sensor.studio_baseboard_current_temperature'),
+                 src.last_changed.isoformat() if src else '',
+                 this.state,
+                 this.attributes.get('value_at', ''),
+                 this.attributes.get('hold_since', ''),
+                 this.attributes.get('pending', ''),
+                 this.attributes.get('pending_at', ''),
+                 now().isoformat(), 1.0, 0.5, 20) | from_json).value -}}
+        attributes:
+          hold_since: >-
+            {% from 'hvac.jinja' import slew_filter %}
+            {% set src = states.sensor.studio_baseboard_current_temperature %}
+            {{- (slew_filter(
+                   states('sensor.studio_baseboard_current_temperature'),
+                   src.last_changed.isoformat() if src else '',
+                   this.state,
+                   this.attributes.get('value_at', ''),
+                   this.attributes.get('hold_since', ''),
+                   this.attributes.get('pending', ''),
+                   this.attributes.get('pending_at', ''),
+                   now().isoformat(), 1.0, 0.5, 20) | from_json).hold_since -}}
+          # When the state was accepted. HA restores this sensor across a
+          # restart, and a value older than the hold cap is a stale room.
+          value_at: >-
+            {% from 'hvac.jinja' import slew_filter %}
+            {% set src = states.sensor.studio_baseboard_current_temperature %}
+            {{- (slew_filter(
+                   states('sensor.studio_baseboard_current_temperature'),
+                   src.last_changed.isoformat() if src else '',
+                   this.state,
+                   this.attributes.get('value_at', ''),
+                   this.attributes.get('hold_since', ''),
+                   this.attributes.get('pending', ''),
+                   this.attributes.get('pending_at', ''),
+                   now().isoformat(), 1.0, 0.5, 20) | from_json).value_at -}}
+          # The seed candidate: with no accepted history, a reading is kept here
+          # until a *later* source update lands within the reject band of it.
+          pending: >-
+            {% from 'hvac.jinja' import slew_filter %}
+            {% set src = states.sensor.studio_baseboard_current_temperature %}
+            {{- (slew_filter(
+                   states('sensor.studio_baseboard_current_temperature'),
+                   src.last_changed.isoformat() if src else '',
+                   this.state,
+                   this.attributes.get('value_at', ''),
+                   this.attributes.get('hold_since', ''),
+                   this.attributes.get('pending', ''),
+                   this.attributes.get('pending_at', ''),
+                   now().isoformat(), 1.0, 0.5, 20) | from_json).pending -}}
+          # The candidate's source timestamp, which is what tells a second
+          # reading apart from the /5 heartbeat re-rendering the first.
+          pending_at: >-
+            {% from 'hvac.jinja' import slew_filter %}
+            {% set src = states.sensor.studio_baseboard_current_temperature %}
+            {{- (slew_filter(
+                   states('sensor.studio_baseboard_current_temperature'),
+                   src.last_changed.isoformat() if src else '',
+                   this.state,
+                   this.attributes.get('value_at', ''),
+                   this.attributes.get('hold_since', ''),
+                   this.attributes.get('pending', ''),
+                   this.attributes.get('pending_at', ''),
+                   now().isoformat(), 1.0, 0.5, 20) | from_json).pending_at -}}
 
 notify:
   - platform: group
@@ -142,7 +228,7 @@ climate:
     min_temp: 17
     max_temp: 30
     temp_step: 0.5
-    current_temperature_template: "{{ states('sensor.studio_baseboard_current_temperature') }}"
+    current_temperature_template: "{{ states('sensor.studio_control_temperature') }}"
     target_temperature_low_template: "{{ states('input_number.studio_heat_bound') }}"
     target_temperature_high_template: "{{ states('input_number.studio_cool_bound') }}"
     hvac_mode_template: "{{ 'heat_cool' if is_state('input_boolean.hvac_enable', 'on') else 'off' }}"

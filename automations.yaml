@@ -8,8 +8,8 @@
 # single system-wide mode where heating wins any conflict, then
 # drives each head's power switch + climate target toward its
 # bound (a per-room heating lead — studio above the bound, office
-# at it — keeps the inverter committed; the baseboard sensor does
-# the real cutoff). Short-cycle protection comes from per-head lockout
+# at it — keeps the inverter committed; each room's control sensor
+# does the real cutoff). Short-cycle protection comes from per-head lockout
 # timers and a heat<->cool minimum dwell that pins the active
 # mode. Master-off (input_boolean.hvac_enable off) and backup-
 # heat force both heads off. Cielo calls are gated per branch on
@@ -32,7 +32,7 @@
   - trigger: state
     entity_id:
     - sensor.office_baseboard_current_temperature
-    - sensor.studio_baseboard_current_temperature
+    - sensor.studio_control_temperature
     - input_number.office_heat_bound
     - input_number.office_cool_bound
     - input_number.studio_heat_bound
@@ -75,7 +75,7 @@
     stored: "{{ states('input_select.system_hvac_mode') }}"
     dwell_active: "{{ is_state('timer.mode_min_dwell', 'active') }}"
     office_temp: "{{ states('sensor.office_baseboard_current_temperature') | float(0) }}"
-    studio_temp: "{{ states('sensor.studio_baseboard_current_temperature') | float(0) }}"
+    studio_temp: "{{ states('sensor.studio_control_temperature') | float(0) }}"
     office_hb: "{{ states('input_number.office_heat_bound') | float(0) }}"
     office_cb: "{{ states('input_number.office_cool_bound') | float(0) }}"
     studio_hb: "{{ states('input_number.studio_heat_bound') | float(0) }}"
@@ -121,10 +121,25 @@
     current_studio_hvac: "{{ states('climate.studio') }}"
     current_office_target: "{{ state_attr('climate.office', 'temperature') | float(0) }}"
     current_studio_target: "{{ state_attr('climate.studio', 'temperature') | float(0) }}"
+    # The head truncates a command to a whole degree Fahrenheit and HA rounds
+    # what it reports back, so a commanded 17.3 returns as 17.2. Comparing the
+    # step each side names is the only comparison that settles.
+    office_target_step: >-
+      {% from 'hvac.jinja' import command_step %}
+      {{- command_step(office_target) -}}
+    studio_target_step: >-
+      {% from 'hvac.jinja' import command_step %}
+      {{- command_step(studio_target) -}}
+    office_device_step: >-
+      {% from 'hvac.jinja' import report_step %}
+      {{- report_step(current_office_target) -}}
+    studio_device_step: >-
+      {% from 'hvac.jinja' import report_step %}
+      {{- report_step(current_studio_target) -}}
     safe_mode: "{{ 'off' if not enabled else 'idle' }}"
   conditions:
   - "{{ states('sensor.office_baseboard_current_temperature') not in ['unavailable', 'unknown'] }}"
-  - "{{ states('sensor.studio_baseboard_current_temperature') not in ['unavailable', 'unknown'] }}"
+  - "{{ states('sensor.studio_control_temperature') not in ['unavailable', 'unknown'] }}"
   - "{{ states('switch.office_power') not in ['unavailable', 'unknown'] }}"
   - "{{ states('switch.studio_power') not in ['unavailable', 'unknown'] }}"
   - "{{ states('climate.office') not in ['unavailable', 'unknown'] }}"
@@ -188,7 +203,7 @@
     - conditions: >-
         {{ office_want_on and office_switch_on
            and (current_office_hvac != desired_hvac
-                or current_office_target != office_target) }}
+                or office_target_step | int(0) != office_device_step | int(0)) }}
       sequence:
       - action: climate.set_temperature
         target:
@@ -225,7 +240,7 @@
     - conditions: >-
         {{ studio_want_on and studio_switch_on
            and (current_studio_hvac != desired_hvac
-                or current_studio_target != studio_target) }}
+                or studio_target_step | int(0) != studio_device_step | int(0)) }}
       sequence:
       - action: climate.set_temperature
         target:
@@ -254,6 +269,17 @@
 # midpoint (heat_bound + cool_bound) / 2. Above it, the
 # baseboards sit at heat_bound - 2.5 °C, under the heat pump's
 # own heat bound, so the pump takes primary duty.
+#
+# Both values are derived from bounds the user can move at any
+# time, so baseboard_standby_setpoint re-derives whichever one
+# backup_heat currently selects whenever a bound changes. The
+# two threshold automations own only the crossing itself.
+#
+# Every baseboard write is gated on a real delta against the
+# device's stored target, and the midpoint is rounded to the
+# 0.5 °C step the baseboards hold — a 0.25 step is a value the
+# device can never report back, so the gate would never settle
+# and a bound move would rewrite an unchanged setpoint.
 # ============================================================
 
 - id: '1756873917108'
@@ -276,20 +302,22 @@
   - action: input_boolean.turn_on
     target:
       entity_id: input_boolean.backup_heat
+  # Half-up to the 0.5 °C step the baseboards hold, the same value
+  # baseboard_standby_setpoint re-derives and gates its writes on.
   - action: climate.set_temperature
     target:
       entity_id: climate.neviweb130_climate_th1123wf
     data:
       temperature: >-
-        {{ (states('input_number.office_heat_bound') | float
-            + states('input_number.office_cool_bound') | float) / 2 }}
+        {{ ((states('input_number.office_heat_bound') | float
+             + states('input_number.office_cool_bound') | float + 0.5) | int) / 2 }}
   - action: climate.set_temperature
     target:
       entity_id: climate.neviweb130_climate_th1124wf
     data:
       temperature: >-
-        {{ (states('input_number.studio_heat_bound') | float
-            + states('input_number.studio_cool_bound') | float) / 2 }}
+        {{ ((states('input_number.studio_heat_bound') | float
+             + states('input_number.studio_cool_bound') | float + 0.5) | int) / 2 }}
   - action: notify.notification_group
     data:
       message: Heat Pump Heating is Disabled, Baseboard Heat is Being Used
@@ -328,6 +356,82 @@
   - action: notify.notification_group
     data:
       message: Heat Pump is Enabled
+  mode: single
+
+- id: baseboard_standby_setpoint
+  alias: Baseboard Standby Setpoint
+  description: >-
+    Both baseboard setpoints are derived from bounds the user can move at any
+    time, so both are re-written whenever a bound moves. The backup-heat entry
+    and exit edges write the same two values, and neither edge can re-fire while
+    backup heat holds its state. While backup heat is on the heads are forced
+    off and the baseboards carry the load at the comfort midpoint
+    (heat_bound + cool_bound) / 2; while it is off they sit at heat_bound - 2.5,
+    under the heat pump's own bound, so the pump takes primary duty. Each write
+    is gated on a real delta against that baseboard's own stored target, so one
+    thermostat-card drag of two bounds commands at most the setpoint it moved.
+  triggers:
+  - trigger: state
+    entity_id:
+    - input_number.office_heat_bound
+    - input_number.office_cool_bound
+    - input_number.studio_heat_bound
+    - input_number.studio_cool_bound
+  variables:
+    # The raw midpoint lands on 0.25 and the baseboards hold 0.5 steps, so it is
+    # rounded half-up — a value the device cannot store never settles the gate.
+    office_midpoint: >-
+      {{ ((states('input_number.office_heat_bound') | float
+           + states('input_number.office_cool_bound') | float + 0.5) | int) / 2 }}
+    studio_midpoint: >-
+      {{ ((states('input_number.studio_heat_bound') | float
+           + states('input_number.studio_cool_bound') | float + 0.5) | int) / 2 }}
+    office_standby: "{{ states('input_number.office_heat_bound') | float - 2.5 }}"
+    studio_standby: "{{ states('input_number.studio_heat_bound') | float - 2.5 }}"
+    # A baseboard holding no target reads 0, below every settable setpoint, so
+    # the gate opens and the write goes through.
+    office_current: "{{ state_attr('climate.neviweb130_climate_th1123wf', 'temperature') | float(0) }}"
+    studio_current: "{{ state_attr('climate.neviweb130_climate_th1124wf', 'temperature') | float(0) }}"
+  actions:
+  - choose:
+    - conditions:
+      - condition: state
+        entity_id: input_boolean.backup_heat
+        state: 'on'
+      sequence:
+      - if: "{{ office_midpoint | float(0) != office_current | float(0) }}"
+        then:
+        - action: climate.set_temperature
+          target:
+            entity_id: climate.neviweb130_climate_th1123wf
+          data:
+            temperature: "{{ office_midpoint }}"
+      - if: "{{ studio_midpoint | float(0) != studio_current | float(0) }}"
+        then:
+        - action: climate.set_temperature
+          target:
+            entity_id: climate.neviweb130_climate_th1124wf
+          data:
+            temperature: "{{ studio_midpoint }}"
+    - conditions:
+      - condition: state
+        entity_id: input_boolean.backup_heat
+        state: 'off'
+      sequence:
+      - if: "{{ office_standby | float(0) != office_current | float(0) }}"
+        then:
+        - action: climate.set_temperature
+          target:
+            entity_id: climate.neviweb130_climate_th1123wf
+          data:
+            temperature: "{{ office_standby }}"
+      - if: "{{ studio_standby | float(0) != studio_current | float(0) }}"
+        then:
+        - action: climate.set_temperature
+          target:
+            entity_id: climate.neviweb130_climate_th1124wf
+          data:
+            temperature: "{{ studio_standby }}"
   mode: single
 
 # ============================================================

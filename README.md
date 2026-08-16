@@ -37,7 +37,9 @@ Each room has two heating/cooling devices:
    thermometer is also the **trusted room-temperature reading** for control,
    because the heat-pump head's own sensor is unreliable (when the head is off,
    it reads refrigerant-pipe temperature driven by the *other* head; it only
-   reflects room temperature once it's been running a while).
+   reflects room temperature once it's been running a while). In the studio that
+   reading is filtered before control uses it, because the dehumidifier's exhaust
+   reaches the wall thermostat — see "Troubleshooting".
 
 The **studio** additionally has a **humidifier** (a smart plug) and a
 **dehumidifier** (a 15 A Z-Wave appliance switch, sized for the compressor)
@@ -71,8 +73,10 @@ should do:
   gets close. The office is commanded its bound; the studio is commanded 1.5 °C
   past its heat bound, because the studio head's own thermometer reads warm and
   without that nudge its compressor loafs and the room sags. That commanded
-  number is not the cut-off point — the trusted baseboard thermometer is what
-  switches a head off.
+  number is not the cut-off point — the trusted room thermometer is what
+  switches a head off. Each commanded number is also snapped onto the head's own
+  temperature grid, which is whole degrees Fahrenheit, so it lands on a step the
+  hardware can actually hold.
 - **Short-cycle protection.** A compressor shouldn't switch on and off rapidly.
   A started head runs a little past its bound before cutting (1.0 °C in the
   office, 0.5 °C in the studio), each head then has a minimum off-time (a
@@ -133,10 +137,10 @@ corrects itself within five minutes — you rarely need to intervene.
 
 **Nothing responds at all.** The coordinator refuses to act on bad data: if any
 of six entities reads `unavailable` or `unknown` it stops before doing anything,
-leaving both heads exactly as they were. The six are the two baseboard
-temperature sensors, both heat-pump power switches, and both heat-pump `climate`
-entities. Check those first — it's usually Wi-Fi or the Cielo cloud. It retries
-every five minutes on its own.
+leaving both heads exactly as they were. The six are the office baseboard
+temperature sensor, the studio's filtered control temperature, both heat-pump
+power switches, and both heat-pump `climate` entities. Check those first — it's
+usually Wi-Fi or the Cielo cloud. It retries every five minutes on its own.
 
 **A head won't restart right after it shut off.** That's the lockout — a minimum
 *off*-time of 8 minutes for the office, 6 for the studio, armed every time a head
@@ -155,12 +159,45 @@ dwelling mode for the full dwell window, and under heating-wins a too-warm room'
 head is off while the mode still reads `heat`. The thermostat tiles show the true
 state — their status line checks each head's power switch as well.
 
-**The studio head is set to 21.5 when its bound is 20.** The 1.5 °C heat lead,
-deliberate. The commanded number is not the cut-off; the baseboard thermometer is.
+**The studio head is set to 21.7 when its bound is 20.** The 1.5 °C heat lead,
+deliberate, landed on the nearest step of the head's own temperature grid (see
+the next entry). The commanded number is not the cut-off; the trusted room
+thermometer is.
+
+**A head's target reads an odd number, or a tenth off what was commanded.** The
+heads work in whole degrees Fahrenheit, so every target is snapped onto that
+grid before it is sent: 20.5 °C is commanded as 20.6 °C, which is 69 °F. A
+commanded 17.3 °C comes back displayed as 17.2 °C for the same reason — both
+spellings name 63 °F. The coordinator compares steps rather than Celsius, so
+neither is drift and neither produces a re-command.
 
 **The room drifts past its heat bound before the head stops.** Also deliberate —
 1.0 °C in the office, 0.5 in the studio. Cutting exactly at the bound would
 short-cycle the compressor.
+
+**The studio tile and the baseboard sensor disagree by a few degrees.** The
+dehumidifier is running, or stopped within the last few minutes. Its exhaust
+reaches the studio's wall thermostat and lifts that reading about 3 °C above the
+room for a quarter of an hour; the tile shows the filtered value the coordinator
+acts on, which is the room. Check `hold_since` on
+`sensor.studio_control_temperature` — non-empty means a hold is active. The same
+filter carries the last good reading through a 20-minute gap in the baseboard
+sensor beneath it, and only then reads `unknown`, which stops the coordinator.
+
+**The studio tile reads nothing for the first few minutes.** The filter is
+waiting for two readings to agree, which it does only when it has nothing to
+start from. A normal restart is not that case: Home Assistant restores the
+filtered value and the filter picks up where it left off, and a hold that was
+running resumes on its original clock rather than a fresh twenty minutes. It
+starts from scratch in three cases — the first time the sensor is ever created,
+after the baseboard sensor beneath it has been gone longer than twenty minutes,
+and after a restart long enough that the restored reading is itself older than
+twenty minutes, which describes a room that has since moved. It will not start
+from a single reading — one taken during a dehumidifier run would stand in for
+the room for the next twenty minutes — so it waits for two readings from two
+separate sensor updates that agree within 1 °C and starts from the second,
+normally about four minutes. Until then the coordinator's bad-data check holds
+both heads exactly as they were.
 
 **Both thermostat tiles went to `off` together.** There is one master switch, and
 both tiles' on/off control writes it.
@@ -169,6 +206,17 @@ both tiles' on/off control writes it.
 sensor stayed below −12 °C for 20 minutes. It sends a phone notification on the
 way in and on the way out, and clears once outdoors holds above −12 °C for 20
 minutes.
+
+**A baseboard's own setpoint moved when I changed a bound.** Deliberate, and it
+happens in both modes. Off backup heat the baseboards idle 2.5 °C below their
+room's heat bound, low enough that the heat pump does the work instead of the two
+fighting each other. On backup heat they carry the room, at the midpoint between
+that room's two bounds, rounded to the nearest half degree because that is the
+step these baseboards hold. Both numbers are derived from bounds you can move, so
+moving one re-derives whichever of the two currently applies. Only the midpoint
+reads a cool bound, so changing a cool bound moves nothing while backup heat is
+off. A baseboard is only commanded when its own setpoint actually moves, so
+dragging both handles on one tile sends at most the one write it earns.
 
 **The humidifier won't start after the dehumidifier stopped.** A 30-minute
 cross-device cooldown, so a turn-off overshoot settles before the opposite device
@@ -230,7 +278,7 @@ restart leaves Home Assistant running the bad config from memory.
 |------|------------|
 | `configuration.yaml` | Root HA config: template sensors, integrations, the thermostat-tile entities |
 | `automations.yaml` | All automations: the HVAC coordinator, backup heat, humidity, the Eva lamp auto-off |
-| `custom_templates/hvac.jinja` | The pure decision logic for the coordinator (heat/cool/idle), unit-tested |
+| `custom_templates/hvac.jinja` | The pure decision logic for the coordinator (heat/cool/idle, setpoint snapping, the studio sensor filter), unit-tested |
 | `helpers.yaml` | The input numbers / booleans / timers (bounds, master switch, etc.) |
 | `tests/` | `pytest` suite covering the control logic |
 | `ha-version.txt` | The Home Assistant release the box runs; the test harness is pinned and asserted against it |
